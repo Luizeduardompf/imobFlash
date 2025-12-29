@@ -1,0 +1,1373 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Idealista Conversas</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .header-actions {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        .btn-danger {
+            background: #ff4757;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(255, 71, 87, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: #ff3838;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 71, 87, 0.4);
+        }
+
+        .btn-danger:active {
+            transform: translateY(0);
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal h3 {
+            color: #ff4757;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+
+        .modal p {
+            color: #666;
+            margin-bottom: 25px;
+            line-height: 1.6;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .btn-cancel {
+            background: #e0e0e0;
+            color: #333;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s;
+        }
+
+        .btn-cancel:hover {
+            background: #d0d0d0;
+        }
+
+        .btn-confirm {
+            background: #ff4757;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+
+        .btn-confirm:hover {
+            background: #ff3838;
+        }
+
+        .confirm-input {
+            width: 100%;
+            padding: 10px;
+            margin: 15px 0;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1em;
+        }
+
+        .confirm-input:focus {
+            outline: none;
+            border-color: #ff4757;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .stat-card h3 {
+            color: #667eea;
+            font-size: 2em;
+            margin-bottom: 5px;
+        }
+
+        .stat-card p {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            height: calc(100vh - 300px);
+            min-height: 600px;
+        }
+
+        .conversations-list {
+            background: #f8f9fa;
+            border-right: 2px solid #e0e0e0;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .conversations-list h2 {
+            margin-bottom: 20px;
+            color: #333;
+            font-size: 1.5em;
+        }
+
+        .conversation-item {
+            background: white;
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid transparent;
+        }
+
+        .conversation-item:hover {
+            transform: translateX(5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .conversation-item.active {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .conversation-item .line1 {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .conversation-item h3 {
+            color: #333;
+            font-size: 1em;
+            margin: 0;
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .conversation-item .line2 {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85em;
+        }
+
+        .conversation-item .phone {
+            color: #667eea;
+            font-weight: bold;
+            white-space: nowrap;
+            margin-right: 10px;
+        }
+
+        .conversation-item .last-message {
+            color: #666;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+        }
+
+        .conversation-item .badge {
+            display: inline-block;
+            background: #ff4757;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin-left: 10px;
+        }
+
+        .messages-panel {
+            display: flex;
+            flex-direction: column;
+            background: #e5ddd5;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .messages-panel.empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 1.2em;
+        }
+
+        .conversation-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 20px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .conversation-header h2 {
+            margin-bottom: 8px;
+            font-size: 1.3em;
+        }
+
+        .conversation-header .info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 8px;
+            margin-top: 10px;
+            font-size: 0.85em;
+            opacity: 0.95;
+        }
+
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .message {
+            padding: 6px 9px 8px 9px;
+            border-radius: 7.5px;
+            max-width: 65%;
+            word-wrap: break-word;
+            animation: slideIn 0.2s ease-out;
+            position: relative;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(5px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.client {
+            background: #ffffff;
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .message.agent {
+            background: #dcf8c6;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+            font-size: 0.75em;
+        }
+
+        .message-sender {
+            font-weight: 500;
+            color: #667eea;
+            opacity: 0.8;
+        }
+
+        .message-time {
+            color: #999;
+            font-size: 0.7em;
+            margin-left: 8px;
+        }
+
+        .message-content {
+            color: #303030;
+            line-height: 1.4;
+            font-size: 0.95em;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+            font-size: 1.2em;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px;
+        }
+
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .new-message-indicator {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 8px;
+            height: 8px;
+            background: #4caf50;
+            border-radius: 50%;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .conversation-item.new {
+            background: #e8f5e9;
+            border-left: 3px solid #4caf50;
+        }
+
+        .message.new {
+            animation: slideInNew 0.4s ease-out;
+        }
+
+        @keyframes slideInNew {
+            from {
+                opacity: 0;
+                transform: translateY(20px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .realtime-status {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #4caf50;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            z-index: 999;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .realtime-status.offline {
+            background: #ff9800;
+        }
+
+        .realtime-status.error {
+            background: #f44336;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: white;
+            animation: pulse-dot 2s infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .search-box {
+            margin-bottom: 20px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="realtime-status" id="realtimeStatus">
+        <span class="status-dot"></span>
+        <span>Conectado em tempo real</span>
+    </div>
+    
+    <div class="container">
+        <div class="header">
+            <h1>💬 Dashboard IMOBFLASH</h1>
+            <p>Monitoramento de Conversas em Tempo Real</p>
+            <div class="header-actions">
+                <button class="btn-danger" onclick="clearDatabase()">🗑️ Limpar Banco de Dados</button>
+            </div>
+        </div>
+
+
+        <div class="stats">
+            <div class="stat-card">
+                <h3 id="totalConversations">0</h3>
+                <p>Total de Conversas</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="totalMessages">0</h3>
+                <p>Total de Mensagens</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="unreadConversations">0</h3>
+                <p>Não Lidas</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="withPhoneNumber">0</h3>
+                <p>Com Telefone</p>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="conversations-list">
+                <h2>Conversas</h2>
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="🔍 Buscar conversas...">
+                </div>
+                <div id="conversationsList">
+                    <div class="loading">Carregando conversas...</div>
+                </div>
+            </div>
+
+            <div class="messages-panel empty" id="messagesPanel">
+                <div>Selecione uma conversa para ver as mensagens</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, query, onSnapshot, orderBy, where, getDocs, deleteDoc, doc, writeBatch } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+        // Configuração do Firebase (mesma do database.js)
+        const firebaseConfig = {
+            projectId: 'imobflash-da1e3',
+            apiKey: 'AIzaSyC_gCf-rNWjvicMlJTGyVbbs2SmuISijbc'
+        };
+
+        // Inicializa Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // Estado da aplicação
+        let conversations = [];
+        let selectedConversationId = null;
+        let conversationsListener = null;
+        let messagesListeners = {};
+        let lastConversationUpdate = new Map(); // Rastreia última atualização de cada conversa
+        let lastMessageUpdate = new Map(); // Rastreia última atualização de mensagens
+        let isOnline = true;
+        let loadingTimeout = null; // Timeout de segurança para carregamento
+
+        // Elementos DOM
+        const conversationsListEl = document.getElementById('conversationsList');
+        const messagesPanelEl = document.getElementById('messagesPanel');
+        const searchInput = document.getElementById('searchInput');
+
+        // Função para atualizar status de conexão
+        function updateConnectionStatus(status) {
+            const statusEl = document.getElementById('realtimeStatus');
+            const statusText = statusEl.querySelector('span:last-child');
+            
+            isOnline = status === 'online';
+            
+            statusEl.className = 'realtime-status';
+            if (status === 'online') {
+                statusText.textContent = 'Conectado em tempo real';
+            } else if (status === 'offline') {
+                statusEl.classList.add('offline');
+                statusText.textContent = 'Desconectado';
+            } else if (status === 'error') {
+                statusEl.classList.add('error');
+                statusText.textContent = 'Erro de conexão';
+            }
+        }
+
+        // Função para normalizar dados do Firestore (garante que campos estão presentes)
+        function normalizeFirestoreData(data, docId) {
+            if (!data) return null;
+            
+            // O Firestore SDK já converte os dados, mas vamos garantir que os campos existam
+            const normalized = {
+                conversationId: docId || data.conversationId || '',
+                userName: data.userName || '',
+                phoneNumber: data.phoneNumber || '',
+                lastMessage: data.lastMessage || '',
+                lastMessageDate: data.lastMessageDate || null,
+                adInfo: data.adInfo || '',
+                adImageUrl: data.adImageUrl || '',
+                timestamp: data.timestamp || null,
+                createdAt: data.createdAt || null,
+                url: data.url || '',
+                isRead: data.isRead || false,
+                unreadCount: data.unreadCount || 0,
+                hasUnread: data.hasUnread || false
+            };
+            
+            // Log se campos importantes estiverem vazios
+            if (!normalized.userName || !normalized.phoneNumber) {
+                console.warn('⚠️ Conversa normalizada com campos faltando:', {
+                    conversationId: normalized.conversationId,
+                    userName: normalized.userName || '(vazio)',
+                    phoneNumber: normalized.phoneNumber || '(vazio)',
+                    rawData: data
+                });
+            }
+            
+            return normalized;
+        }
+
+        // Função para obter data de um timestamp (suporta vários formatos)
+        function parseTimestamp(timestamp) {
+            if (!timestamp) return null;
+            
+            try {
+                // Se for objeto Firestore Timestamp
+                if (timestamp.seconds) {
+                    return new Date(timestamp.seconds * 1000);
+                }
+                // Se for string ISO
+                if (typeof timestamp === 'string' && timestamp.includes('T')) {
+                    return new Date(timestamp);
+                }
+                // Se for número (milliseconds)
+                if (typeof timestamp === 'number') {
+                    return new Date(timestamp);
+                }
+                // Tenta parsear como string
+                return new Date(timestamp);
+            } catch (e) {
+                console.warn('⚠️ Erro ao parsear timestamp:', timestamp, e);
+                return null;
+            }
+        }
+
+        // Função para formatar data completa
+        function formatDate(dateString) {
+            if (!dateString) return 'Data não disponível';
+            const date = parseTimestamp(dateString);
+            if (!date || isNaN(date.getTime())) return dateString || 'Data não disponível';
+            
+            return date.toLocaleString('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        // Função para formatar data/hora de mensagem (mostra apenas hora se for hoje, senão data+hora)
+        function formatMessageTime(timestamp) {
+            if (!timestamp) return '';
+            
+            const msgDate = parseTimestamp(timestamp);
+            if (!msgDate || isNaN(msgDate.getTime())) {
+                return '';
+            }
+            
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const msgDay = new Date(msgDate.getFullYear(), msgDate.getMonth(), msgDate.getDate());
+            
+            // Se for hoje, mostra apenas hora
+            if (msgDay.getTime() === today.getTime()) {
+                return msgDate.toLocaleTimeString('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            }
+            
+            // Se não for hoje, mostra data e hora
+            return msgDate.toLocaleString('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        // Função para formatar telefone
+        function formatPhone(phone) {
+            if (!phone || phone.trim() === '') return 'Não disponível';
+            // Remove caracteres não numéricos
+            const cleaned = phone.replace(/\D/g, '');
+            if (cleaned.length === 13 && cleaned.startsWith('351')) {
+                return `+351 ${cleaned.substring(3, 5)} ${cleaned.substring(5, 8)} ${cleaned.substring(8, 11)} ${cleaned.substring(11)}`;
+            }
+            if (cleaned.length >= 9) {
+                return cleaned;
+            }
+            return phone;
+        }
+
+        // Função para renderizar conversas
+        function renderConversations(filteredConversations = null) {
+            const toRender = filteredConversations || conversations;
+            
+            if (toRender.length === 0) {
+                conversationsListEl.innerHTML = '<div class="loading">Nenhuma conversa encontrada</div>';
+                return;
+            }
+
+            const now = Date.now();
+            conversationsListEl.innerHTML = toRender.map(conv => {
+                // Verifica se a conversa foi atualizada recentemente (últimos 3 segundos)
+                const lastUpdate = lastConversationUpdate.get(conv.conversationId) || 0;
+                const isNew = (now - lastUpdate) < 3000 && lastUpdate > 0;
+                
+                return `
+                <div class="conversation-item ${conv.conversationId === selectedConversationId ? 'active' : ''} ${isNew ? 'new' : ''}" 
+                     onclick="selectConversation('${conv.conversationId}')"
+                     style="position: relative;">
+                    ${isNew ? '<div class="new-message-indicator"></div>' : ''}
+                    <div class="line1">
+                        <h3>${conv.userName || 'Sem nome'}</h3>
+                        ${conv.hasUnread ? `<span class="badge">${conv.unreadCount}</span>` : ''}
+                    </div>
+                    <div class="line2">
+                        <span class="phone">📞 ${formatPhone(conv.phoneNumber)}</span>
+                        <span class="last-message">${conv.lastMessage || 'Sem mensagem'}</span>
+                    </div>
+                </div>
+            `;
+            }).join('');
+            
+            // Remove classe 'new' após 3 segundos
+            setTimeout(() => {
+                document.querySelectorAll('.conversation-item.new').forEach(item => {
+                    item.classList.remove('new');
+                });
+            }, 3000);
+        }
+
+        // Função para renderizar mensagens
+        function renderMessages(messages) {
+            console.log('🎨 ========== RENDERIZANDO MENSAGENS ==========');
+            console.log('📊 Total de mensagens:', messages?.length || 0);
+            console.log('🔍 ConversationId selecionado:', selectedConversationId);
+            
+            const conversation = conversations.find(c => c.conversationId === selectedConversationId);
+            if (!conversation) {
+                console.error('❌ Conversa não encontrada! ID:', selectedConversationId);
+                console.log('📋 Conversas disponíveis:', conversations.map(c => c.conversationId));
+                messagesPanelEl.innerHTML = '<div class="empty">Conversa não encontrada</div>';
+                messagesPanelEl.classList.add('empty');
+                return;
+            }
+
+            console.log('✅ Conversa encontrada:', {
+                conversationId: conversation.conversationId,
+                userName: conversation.userName,
+                phoneNumber: conversation.phoneNumber,
+                phoneFormatted: formatPhone(conversation.phoneNumber)
+            });
+
+            messagesPanelEl.classList.remove('empty');
+            
+            // Captura IDs de mensagens existentes antes de renderizar
+            const previousMessageIds = new Set(
+                Array.from(document.querySelectorAll('.message')).map(msg => 
+                    msg.getAttribute('data-message-id')
+                ).filter(Boolean)
+            );
+            
+            // Sempre mostra o header, mesmo sem mensagens
+            let messagesHTML = '';
+            if (!messages || messages.length === 0) {
+                messagesHTML = '<div style="text-align: center; padding: 40px; color: #999;">Nenhuma mensagem encontrada nesta conversa</div>';
+            } else {
+                console.log('📝 Processando', messages.length, 'mensagens para renderização');
+                const now = Date.now();
+                
+                messagesHTML = messages.map((msg, index) => {
+                    const timeStr = formatMessageTime(msg.timestamp) || msg.time || '';
+                    const isNew = !previousMessageIds.has(msg.messageId);
+                    
+                    if (isNew) {
+                        lastMessageUpdate.set(msg.messageId, now);
+                    }
+                    
+                    console.log(`📄 Mensagem ${index + 1}:`, {
+                        id: msg.messageId,
+                        sender: msg.sender,
+                        content: msg.content?.substring(0, 30) + '...',
+                        timestamp: msg.timestamp,
+                        timeFormatted: timeStr,
+                        isNew: isNew
+                    });
+                    return `
+                    <div class="message ${msg.sender} ${isNew ? 'new' : ''}" data-message-id="${msg.messageId}">
+                        <div class="message-header">
+                            <span class="message-sender">${msg.sender === 'client' ? '👤 Cliente' : '🏢 Agente'}</span>
+                            ${timeStr ? `<span class="message-time">${timeStr}</span>` : ''}
+                        </div>
+                        <div class="message-content">${escapeHtml(msg.content || 'Sem conteúdo')}</div>
+                    </div>
+                `;
+                }).join('');
+                
+                // Remove classe 'new' após animação
+                setTimeout(() => {
+                    document.querySelectorAll('.message.new').forEach(msg => {
+                        msg.classList.remove('new');
+                    });
+                }, 2000);
+            }
+            
+            const phoneFormatted = formatPhone(conversation.phoneNumber);
+            console.log('📞 Telefone formatado:', {
+                original: conversation.phoneNumber,
+                formatted: phoneFormatted
+            });
+            
+            messagesPanelEl.innerHTML = `
+                <div class="conversation-header">
+                    <h2>${conversation.userName || 'Sem nome'}</h2>
+                    <div class="info">
+                        <div><strong>📞 Telefone:</strong> ${phoneFormatted}</div>
+                        <div><strong>📅 Última mensagem:</strong> ${formatDate(conversation.lastMessageDate)}</div>
+                        <div><strong>💬 Total de mensagens:</strong> ${messages?.length || 0}</div>
+                        <div><strong>🏠 Anúncio:</strong> ${conversation.adInfo || 'N/A'}</div>
+                    </div>
+                </div>
+                <div class="messages-container">
+                    ${messagesHTML}
+                </div>
+            `;
+            
+            console.log('✅ HTML renderizado com sucesso');
+
+            // Scroll para o final se houver mensagens (sempre que renderizar)
+            if (messages && messages.length > 0) {
+                setTimeout(() => {
+                    const container = messagesPanelEl.querySelector('.messages-container');
+                    if (container) {
+                        // Verifica se já está próximo do final antes de fazer scroll automático
+                        const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+                        // Verifica se há novas mensagens comparando com as anteriores
+                        const currentMessageIds = new Set(messages.map(m => m.messageId));
+                        const hasNewMessages = Array.from(previousMessageIds).some(id => !currentMessageIds.has(id)) || 
+                                               messages.some(m => !previousMessageIds.has(m.messageId));
+                        
+                        // Faz scroll automático se estiver perto do final OU se houver novas mensagens
+                        if (isNearBottom || hasNewMessages) {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    }
+                }, 100);
+            }
+        }
+
+        // Função para escapar HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Função para selecionar conversa
+        window.selectConversation = function(conversationId) {
+            selectedConversationId = conversationId;
+            renderConversations();
+            loadMessages(conversationId);
+        };
+
+        // Função para carregar mensagens
+        async function loadMessages(conversationId) {
+            console.log('📥 Carregando mensagens para conversa:', conversationId);
+            
+            // Remove listener anterior se existir
+            if (messagesListeners[conversationId]) {
+                messagesListeners[conversationId]();
+                delete messagesListeners[conversationId];
+            }
+
+            messagesPanelEl.innerHTML = '<div class="loading">Carregando mensagens...</div>';
+
+            try {
+                const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+                
+                // Tenta primeiro com ordenação
+                let q;
+                try {
+                    q = query(messagesRef, orderBy('timestamp', 'desc'));
+                } catch (orderError) {
+                    console.warn('⚠️ Erro ao ordenar por timestamp, tentando sem ordenação:', orderError);
+                    // Se falhar, tenta sem ordenação
+                    q = query(messagesRef);
+                }
+
+                // Listener em tempo real
+                const unsubscribe = onSnapshot(q, 
+                    (snapshot) => {
+                        updateConnectionStatus('online');
+                        console.log('📨 Snapshot recebido, documentos:', snapshot.size);
+                        
+                        const previousMessageIds = new Set(
+                            Array.from(document.querySelectorAll('.message')).map(msg => 
+                                msg.getAttribute('data-message-id')
+                            ).filter(Boolean)
+                        );
+                        
+                        const messages = [];
+                        snapshot.forEach((doc) => {
+                            const data = doc.data();
+                            console.log('📄 Mensagem:', doc.id, data);
+                            messages.push({
+                                messageId: doc.id,
+                                ...data
+                            });
+                        });
+                        
+                        // Identifica novas mensagens
+                        const newMessages = messages.filter(msg => !previousMessageIds.has(msg.messageId));
+                        if (newMessages.length > 0 && selectedConversationId === conversationId) {
+                            console.log('🆕 Novas mensagens detectadas:', newMessages.length);
+                            // Toca som de notificação (opcional)
+                            playNotificationSound();
+                        }
+
+                    // Ordena manualmente (sempre, para garantir ordem correta)
+                    if (messages.length > 0) {
+                        console.log('🔄 Ordenando mensagens...');
+                        messages.sort((a, b) => {
+                            const dateA = parseTimestamp(a.timestamp);
+                            const dateB = parseTimestamp(b.timestamp);
+                            
+                            if (!dateA || isNaN(dateA.getTime())) return 1; // Sem data vai para o final
+                            if (!dateB || isNaN(dateB.getTime())) return -1;
+                            
+                            // Mais recentes primeiro (desc)
+                            return dateB.getTime() - dateA.getTime();
+                        });
+                        console.log('✅ Mensagens ordenadas. Primeira:', {
+                            content: messages[0]?.content?.substring(0, 30),
+                            timestamp: messages[0]?.timestamp,
+                            time: formatMessageTime(messages[0]?.timestamp)
+                        });
+                        console.log('✅ Última:', {
+                            content: messages[messages.length - 1]?.content?.substring(0, 30),
+                            timestamp: messages[messages.length - 1]?.timestamp,
+                            time: formatMessageTime(messages[messages.length - 1]?.timestamp)
+                        });
+                    }
+
+                    console.log('✅ Total de mensagens processadas:', messages.length);
+                    console.log('📊 Dados da conversa:', {
+                        conversationId: selectedConversationId,
+                        phoneNumber: conversations.find(c => c.conversationId === selectedConversationId)?.phoneNumber,
+                        userName: conversations.find(c => c.conversationId === selectedConversationId)?.userName
+                    });
+                    
+                        renderMessages(messages);
+                        updateStats();
+                    }, 
+                    (error) => {
+                        console.error('❌ Erro no listener de mensagens:', error);
+                        console.error('Detalhes:', error.code, error.message);
+                        updateConnectionStatus('error');
+                    
+                    // Tenta carregar sem ordenação como fallback
+                    if (error.code === 'failed-precondition') {
+                        console.log('🔄 Tentando carregar sem ordenação...');
+                        const fallbackQ = query(messagesRef);
+                        const fallbackUnsubscribe = onSnapshot(fallbackQ, (snapshot) => {
+                            const messages = [];
+                            snapshot.forEach((doc) => {
+                                const data = doc.data();
+                                messages.push({
+                                    messageId: doc.id,
+                                    ...data
+                                });
+                            });
+                            
+                            // Ordena manualmente
+                            console.log('🔄 Ordenando mensagens (fallback)...');
+                            messages.sort((a, b) => {
+                                const dateA = parseTimestamp(a.timestamp);
+                                const dateB = parseTimestamp(b.timestamp);
+                                
+                                if (!dateA || isNaN(dateA.getTime())) return 1;
+                                if (!dateB || isNaN(dateB.getTime())) return -1;
+                                
+                                return dateB.getTime() - dateA.getTime(); // Mais recentes primeiro
+                            });
+                            
+                            console.log('✅ Mensagens ordenadas (fallback):', messages.length);
+                            renderMessages(messages);
+                            updateStats();
+                        }, (fallbackError) => {
+                            console.error('❌ Erro no fallback:', fallbackError);
+                            messagesPanelEl.innerHTML = `<div class="error">Erro ao carregar mensagens: ${fallbackError.message}<br><small>Verifique o console para mais detalhes</small></div>`;
+                        });
+                        messagesListeners[conversationId] = fallbackUnsubscribe;
+                    } else {
+                        messagesPanelEl.innerHTML = `<div class="error">Erro ao carregar mensagens: ${error.message}<br><small>Código: ${error.code || 'N/A'}</small><br><small>Verifique o console para mais detalhes</small></div>`;
+                    }
+                });
+
+                messagesListeners[conversationId] = unsubscribe;
+            } catch (error) {
+                console.error('❌ Erro ao configurar listener:', error);
+                messagesPanelEl.innerHTML = `<div class="error">Erro ao carregar mensagens: ${error.message}<br><small>Verifique o console para mais detalhes</small></div>`;
+            }
+        }
+
+        // Função para atualizar estatísticas
+        function updateStats() {
+            const total = conversations.length;
+            const unread = conversations.filter(c => c.hasUnread).length;
+            const withPhone = conversations.filter(c => c.phoneNumber && c.phoneNumber.trim() !== '').length;
+
+            // Conta total de mensagens
+            let totalMessages = 0;
+            conversations.forEach(conv => {
+                // Isso será atualizado quando carregarmos as mensagens
+            });
+
+            document.getElementById('totalConversations').textContent = total;
+            document.getElementById('unreadConversations').textContent = unread;
+            document.getElementById('withPhoneNumber').textContent = withPhone;
+        }
+
+        // Função para buscar conversas
+        searchInput.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            if (!searchTerm) {
+                renderConversations();
+                return;
+            }
+
+            const filtered = conversations.filter(conv => {
+                const userName = (conv.userName || '').toLowerCase();
+                const phone = (conv.phoneNumber || '').toLowerCase();
+                const message = (conv.lastMessage || '').toLowerCase();
+                return userName.includes(searchTerm) || phone.includes(searchTerm) || message.includes(searchTerm);
+            });
+
+            renderConversations(filtered);
+        });
+
+        // Listener em tempo real para conversas
+        function setupConversationsListener() {
+            console.log('🔧 Configurando listener de conversas...');
+            const conversationsRef = collection(db, 'conversations');
+            
+            // Tenta primeiro com ordenação
+            let q;
+            try {
+                q = query(conversationsRef, orderBy('timestamp', 'desc'));
+                console.log('✅ Query com ordenação criada');
+            } catch (orderError) {
+                console.warn('⚠️ Erro ao criar query com ordenação, tentando sem ordenação:', orderError);
+                q = query(conversationsRef);
+            }
+
+            console.log('👂 Iniciando listener onSnapshot...');
+            conversationsListener = onSnapshot(q, 
+                (snapshot) => {
+                    console.log('📥 Snapshot de conversas recebido!', snapshot.size, 'documentos');
+                    updateConnectionStatus('online');
+                    
+                    const now = Date.now();
+                    const previousConversationIds = new Set(conversations.map(c => c.conversationId));
+                    
+                    conversations = [];
+                    snapshot.forEach((doc) => {
+                        const data = doc.data();
+                        const conversationId = doc.id;
+                        
+                        // Normaliza os dados (garante que campos estão presentes)
+                        const conversation = normalizeFirestoreData(data, conversationId);
+                        if (!conversation) {
+                            console.warn('⚠️ Conversa com dados inválidos, pulando:', conversationId);
+                            return;
+                        }
+                        
+                        // Log para debug - verificar o que está vindo do Firestore
+                        console.log('📄 Dados da conversa do Firestore:', {
+                            conversationId,
+                            userName: conversation.userName,
+                            phoneNumber: conversation.phoneNumber,
+                            userNameType: typeof conversation.userName,
+                            phoneNumberType: typeof conversation.phoneNumber
+                        });
+                        
+                        // Marca como atualizada se for nova ou modificada
+                        if (!previousConversationIds.has(conversationId)) {
+                            lastConversationUpdate.set(conversationId, now);
+                            console.log('🆕 Nova conversa detectada:', conversationId, conversation.userName);
+                        } else {
+                            // Verifica se houve mudança comparando timestamp
+                            const existing = conversations.find(c => c.conversationId === conversationId);
+                            if (existing && existing.timestamp !== conversation.timestamp) {
+                                lastConversationUpdate.set(conversationId, now);
+                            }
+                        }
+                        
+                        conversations.push(conversation);
+                    });
+
+                    // Ordena manualmente se não foi ordenado pela query
+                    if (conversations.length > 0) {
+                        conversations.sort((a, b) => {
+                            const dateA = parseTimestamp(a.timestamp);
+                            const dateB = parseTimestamp(b.timestamp);
+                            
+                            if (!dateA || isNaN(dateA.getTime())) return 1;
+                            if (!dateB || isNaN(dateB.getTime())) return -1;
+                            
+                            return dateB.getTime() - dateA.getTime(); // Mais recentes primeiro
+                        });
+                    }
+
+                    console.log('✅ Conversas processadas:', conversations.length);
+                    
+                    // Limpa timeout de segurança se carregou com sucesso
+                    clearTimeout(loadingTimeout);
+                    
+                    renderConversations();
+                    updateStats();
+
+                    // Se houver uma conversa selecionada, mantém as mensagens atualizadas
+                    if (selectedConversationId) {
+                        console.log('🔄 Mantendo mensagens atualizadas para:', selectedConversationId);
+                    }
+                }, 
+                (error) => {
+                    console.error('❌ Erro no listener de conversas:', error);
+                    console.error('Código do erro:', error.code);
+                    console.error('Mensagem:', error.message);
+                    updateConnectionStatus('error');
+                    
+                    // Tenta sem ordenação como fallback
+                    if (error.code === 'failed-precondition') {
+                        console.log('🔄 Tentando carregar conversas sem ordenação...');
+                        const fallbackQ = query(conversationsRef);
+                        const fallbackUnsubscribe = onSnapshot(fallbackQ, 
+                            (snapshot) => {
+                                console.log('📥 Snapshot (fallback) recebido!', snapshot.size, 'documentos');
+                                updateConnectionStatus('online');
+                                
+                                conversations = [];
+                                snapshot.forEach((doc) => {
+                                    const data = doc.data();
+                                    // Normaliza os dados (garante que campos estão presentes)
+                                    const conversation = normalizeFirestoreData(data, doc.id);
+                                    if (conversation) {
+                                        conversations.push(conversation);
+                                    }
+                                });
+                                
+                                // Ordena manualmente
+                                conversations.sort((a, b) => {
+                                    const dateA = parseTimestamp(a.timestamp);
+                                    const dateB = parseTimestamp(b.timestamp);
+                                    
+                                    if (!dateA || isNaN(dateA.getTime())) return 1;
+                                    if (!dateB || isNaN(dateB.getTime())) return -1;
+                                    
+                                    return dateB.getTime() - dateA.getTime();
+                                });
+                                
+                                // Limpa timeout de segurança se carregou com sucesso
+                                clearTimeout(loadingTimeout);
+                                
+                                renderConversations();
+                                updateStats();
+                            },
+                            (fallbackError) => {
+                                console.error('❌ Erro no fallback:', fallbackError);
+                                clearTimeout(loadingTimeout);
+                                conversationsListEl.innerHTML = `<div class="error">Erro ao carregar conversas: ${fallbackError.message}<br><small>Código: ${fallbackError.code || 'N/A'}</small><br><small>Verifique o console e as regras do Firestore</small><br><button onclick="location.reload()" style="margin-top: 10px; padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">🔄 Recarregar</button></div>`;
+                            }
+                        );
+                        conversationsListener = fallbackUnsubscribe;
+                    } else {
+                        conversationsListEl.innerHTML = `<div class="error">Erro ao carregar conversas: ${error.message}<br><small>Código: ${error.code || 'N/A'}</small><br><small>Verifique o console para mais detalhes</small></div>`;
+                    }
+                }
+            );
+            
+            console.log('✅ Listener de conversas configurado');
+        }
+
+        // Função para mostrar modal de limpeza
+        // Função para limpar banco de dados
+        window.clearDatabase = async function() {
+            // Confirmação simples com confirm()
+            if (!confirm('⚠️ Tem certeza que deseja limpar todo o banco de dados?\n\nEsta ação irá DELETAR PERMANENTEMENTE todas as conversas e mensagens.\n\nEsta ação NÃO PODE SER DESFEITA!')) {
+                return;
+            }
+            
+            try {
+                console.log('🗑️ Iniciando limpeza do banco de dados...');
+                
+                // Busca todas as conversas
+                const conversationsRef = collection(db, 'conversations');
+                const conversationsSnapshot = await getDocs(conversationsRef);
+                
+                console.log(`📊 Encontradas ${conversationsSnapshot.size} conversas para deletar`);
+                
+                let totalDeleted = 0;
+                let totalMessagesDeleted = 0;
+                
+                // Usa batch para deletar em lote (máximo 500 por vez)
+                let batch = writeBatch(db);
+                let batchCount = 0;
+                const BATCH_LIMIT = 500;
+                
+                for (const conversationDoc of conversationsSnapshot.docs) {
+                    const conversationId = conversationDoc.id;
+                    console.log(`🗑️ Deletando conversa: ${conversationId}`);
+                    
+                    // Busca todas as mensagens desta conversa
+                    const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+                    const messagesSnapshot = await getDocs(messagesRef);
+                    
+                    console.log(`  📨 Encontradas ${messagesSnapshot.size} mensagens para deletar`);
+                    
+                    // Deleta todas as mensagens
+                    for (const messageDoc of messagesSnapshot.docs) {
+                        if (batchCount >= BATCH_LIMIT) {
+                            await batch.commit();
+                            batch = writeBatch(db);
+                            batchCount = 0;
+                        }
+                        batch.delete(messageDoc.ref);
+                        batchCount++;
+                        totalMessagesDeleted++;
+                    }
+                    
+                    // Deleta a conversa
+                    if (batchCount >= BATCH_LIMIT) {
+                        await batch.commit();
+                        batch = writeBatch(db);
+                        batchCount = 0;
+                    }
+                    batch.delete(conversationDoc.ref);
+                    batchCount++;
+                    totalDeleted++;
+                }
+                
+                // Commit do batch final
+                if (batchCount > 0) {
+                    await batch.commit();
+                }
+                
+                console.log(`✅ Limpeza concluída!`);
+                console.log(`   - ${totalDeleted} conversas deletadas`);
+                console.log(`   - ${totalMessagesDeleted} mensagens deletadas`);
+                
+                // Recarrega a página após 1 segundo
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+                
+            } catch (error) {
+                console.error('❌ Erro ao limpar banco de dados:', error);
+                alert(`❌ Erro ao limpar banco de dados: ${error.message}\n\nVerifique o console para mais detalhes.`);
+            }
+        };
+
+        // Função para tocar som de notificação (opcional)
+        function playNotificationSound() {
+            try {
+                // Cria um som simples usando Web Audio API
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.value = 800;
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.2);
+            } catch (e) {
+                // Ignora erros de áudio
+                console.log('ℹ️ Áudio de notificação não disponível');
+            }
+        }
+
+        // Monitora conexão
+        window.addEventListener('online', () => {
+            updateConnectionStatus('online');
+            console.log('✅ Conexão restaurada');
+        });
+
+        window.addEventListener('offline', () => {
+            updateConnectionStatus('offline');
+            console.warn('⚠️ Conexão perdida');
+        });
+
+        // Timeout de segurança - se não carregar em 10 segundos, mostra erro
+        loadingTimeout = setTimeout(() => {
+            if (conversations.length === 0 && conversationsListEl.innerHTML.includes('Carregando')) {
+                console.error('⏱️ Timeout: Conversas não carregaram em 10 segundos');
+                conversationsListEl.innerHTML = `
+                    <div class="error">
+                        <strong>⏱️ Timeout ao carregar conversas</strong><br>
+                        <small>Verifique:</small><br>
+                        <small>1. Conexão com a internet</small><br>
+                        <small>2. Regras de segurança do Firestore</small><br>
+                        <small>3. Console do navegador (F12) para erros</small><br>
+                        <button onclick="location.reload()" style="margin-top: 10px; padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">🔄 Recarregar</button>
+                    </div>
+                `;
+                updateConnectionStatus('error');
+            }
+        }, 10000);
+
+        // Inicializa a aplicação
+        console.log('🚀 Inicializando dashboard...');
+        console.log('📊 Firebase configurado:', {
+            projectId: firebaseConfig.projectId,
+            apiKey: firebaseConfig.apiKey ? 'Configurado' : 'Não configurado'
+        });
+        console.log('🗄️ Firestore inicializado:', db ? 'Sim' : 'Não');
+        
+        updateConnectionStatus('online');
+        
+        // Aguarda um pouco antes de iniciar o listener (garante que o DOM está pronto)
+        setTimeout(() => {
+            console.log('⏰ Iniciando listener de conversas...');
+            try {
+                setupConversationsListener();
+            } catch (error) {
+                console.error('❌ Erro ao configurar listener:', error);
+                conversationsListEl.innerHTML = `<div class="error">Erro ao inicializar: ${error.message}<br><small>Verifique o console para mais detalhes</small></div>`;
+                updateConnectionStatus('error');
+            }
+        }, 500);
+        
+        console.log('✅ Dashboard inicializado');
+    </script>
+</body>
+</html>
+

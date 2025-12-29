@@ -1,0 +1,21 @@
+{
+    "manifest_version": 3,
+    "name": "Idealista Button Injector",
+    "version": "1.0",
+    "description": "Adiciona um botão na página de conversas do Idealista.",
+    "permissions": [
+        "storage"
+    ],
+    "host_permissions": [
+        "https://www.idealista.pt/*",
+        "https://*.firebaseio.com/*",
+        "https://*.googleapis.com/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": ["https://www.idealista.pt/conversations*"],
+            "js": ["database.js", "content.js"],
+            "run_at": "document_idle"
+        }
+    ]
+}
