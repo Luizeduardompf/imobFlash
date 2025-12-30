@@ -1,6 +1,6 @@
 # 🚀 Guia de Configuração do Supabase
 
-Este guia irá te ajudar a configurar o Supabase para substituir o Firebase na extensão.
+Este guia irá te ajudar a configurar o Supabase na extensão.
 
 ## 📋 Pré-requisitos
 
@@ -169,8 +169,8 @@ const DB_CONFIG = {
         anonKey: 'SUA_ANON_KEY_AQUI' // COLE AQUI SUA ANON KEY
     },
     
-    // Modo: 'rest', 'supabase' ou 'firebase' (firebase está deprecado)
-    mode: 'supabase' // MUDE PARA 'supabase'
+    // Modo: 'rest' ou 'supabase'
+    mode: 'supabase'
 };
 ```
 
@@ -223,22 +223,19 @@ mode: 'supabase'
 - **Solução**: Verifique se copiou corretamente a URL e a chave no Passo 5
 
 ### Dados não aparecem
-- **Causa**: Modo ainda está como 'firebase'
+- **Causa**: Modo não está configurado corretamente
 - **Solução**: Verifique se `mode: 'supabase'` está configurado no `database.js`
 
 ---
 
 ## 📊 Dashboard (Opcional)
 
-Se você estiver usando o `dashboard.html`, também precisará atualizar:
+Se você estiver usando o `dashboard.html`, você precisará configurá-lo para usar Supabase:
 
 1. Abra `dashboard.html`
-2. Localize a configuração do Firebase (geralmente no início do arquivo)
-3. Substitua pela configuração do Supabase usando o SDK JavaScript do Supabase
-
-**Nota**: O dashboard atual usa Firebase SDK. Para usar Supabase, você precisará:
-- Adicionar o script do Supabase: `<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>`
-- Substituir as chamadas do Firebase pelo Supabase
+2. Adicione o script do Supabase: `<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>`
+3. Configure o Supabase com suas credenciais
+4. Substitua as chamadas de banco de dados para usar a API REST do Supabase
 
 ---
 

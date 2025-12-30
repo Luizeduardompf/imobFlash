@@ -450,7 +450,7 @@
                     
                     // Só atualiza no banco se o número mudou
                     if (phoneNumber !== cachedPhoneNumber && typeof updateConversation !== 'undefined') {
-                        console.log('🔄 PhoneNumber extraído mudou, atualizando no Firebase:', conversationId, phoneNumber);
+                        console.log('🔄 PhoneNumber extraído mudou, atualizando no Supabase:', conversationId, phoneNumber);
                         updateConversation(conversationId, { phoneNumber: phoneNumber }).then(updated => {
                             if (updated) {
                                 // Atualiza cache
@@ -574,7 +574,7 @@
         // Processa a conversa (clica no telefone e extrai número)
         processConversation();
         
-        // Aguarda um pouco e atualiza o phoneNumber no Firebase (só se mudou)
+        // Aguarda um pouco e atualiza o phoneNumber no Supabase (só se mudou)
         setTimeout(async () => {
             await updatePhoneNumberInDatabase();
         }, 3000); // Aguarda 3 segundos para o número ser extraído
@@ -634,16 +634,16 @@
                 return;
             }
             
-            // 3. Se encontrou o phoneNumber E mudou, atualiza no Firebase
+            // 3. Se encontrou o phoneNumber E mudou, atualiza no Supabase
             if (phoneNumber && typeof updateConversation !== 'undefined') {
-                console.log('🔄 PhoneNumber mudou, atualizando no Firebase:', conversationId, phoneNumber);
+                console.log('🔄 PhoneNumber mudou, atualizando no Supabase:', conversationId, phoneNumber);
                 const updated = await updateConversation(conversationId, {
                     phoneNumber: phoneNumber
                     // NÃO atualiza timestamp a cada vez - só quando realmente necessário
                 });
                 
                 if (updated) {
-                    console.log('✅ PhoneNumber atualizado no Firebase:', conversationId, phoneNumber);
+                    console.log('✅ PhoneNumber atualizado no Supabase:', conversationId, phoneNumber);
                     // Atualiza cache
                     if (!cached) {
                         conversationCache.set(conversationId, { phoneNumber });
@@ -651,7 +651,7 @@
                         cached.phoneNumber = phoneNumber;
                     }
                 } else {
-                    console.warn('⚠️ Falha ao atualizar phoneNumber no Firebase:', conversationId);
+                    console.warn('⚠️ Falha ao atualizar phoneNumber no Supabase:', conversationId);
                 }
             } else if (!phoneNumber) {
                 console.log('ℹ️ PhoneNumber ainda não disponível para:', conversationId);
@@ -1038,11 +1038,10 @@
         
         console.log('📝 Processando nova conversa:', data.conversationId, data.userName);
 
-        // Salva no banco de dados (Firebase)
-        // O localStorage será usado automaticamente como fallback se o Firebase falhar
+        // Salva no banco de dados (Supabase)
         try {
             if (typeof Conversation !== 'undefined' && typeof saveConversation !== 'undefined') {
-                console.log('🔄 Salvando nova conversa no Firebase:', data.conversationId);
+                console.log('🔄 Salvando nova conversa no Supabase:', data.conversationId);
                 const conversation = new Conversation(data);
                 const saved = await saveConversation(conversation);
                 if (saved) {
@@ -1619,7 +1618,7 @@
                         phoneNumber: phoneNumber || '(não disponível)'
                     });
                     
-                    // Atualiza a conversa no Firebase (apenas campos que mudaram)
+                    // Atualiza a conversa no Supabase (apenas campos que mudaram)
                     const updated = await updateConversation(conversationId, updateData);
                     if (updated) {
                         console.log('✅ Conversa atualizada com detalhes do chat:', {
@@ -1643,7 +1642,7 @@
                             if (lastMessageDateForDB) cached.lastMessageDate = lastMessageDateForDB;
                         }
                     } else {
-                        console.warn('⚠️ Falha ao atualizar conversa no Firebase');
+                        console.warn('⚠️ Falha ao atualizar conversa no Supabase');
                     }
                 } catch (error) {
                     console.error('❌ Erro ao atualizar conversa:', error);

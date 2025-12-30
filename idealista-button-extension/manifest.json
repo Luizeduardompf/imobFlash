@@ -8,8 +8,7 @@
     ],
     "host_permissions": [
         "https://www.idealista.pt/*",
-        "https://*.firebaseio.com/*",
-        "https://*.googleapis.com/*"
+        "https://*.supabase.co/*"
     ],
     "content_scripts": [
         {
