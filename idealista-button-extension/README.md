@@ -24,10 +24,15 @@ Extensão para Chrome que adiciona funcionalidades à página de conversas do Id
 - ✅ Real-time subscriptions (opcional)
 - ✅ Setup rápido: ~10 minutos
 
+**Credenciais do Projeto:**
+
+- **Database Password:** `Le120380@imobflash!`
+- ⚠️ **Atenção:** Esta senha é usada para acessar o banco de dados diretamente. Mantenha-a segura.
+
 **Passos:**
 
 1. Crie uma conta no [Supabase](https://supabase.com)
-2. Crie um novo projeto
+2. Crie um novo projeto usando a senha acima
 3. Obtenha as credenciais (Project URL e Anon Key)
 4. Configure as tabelas no banco (veja [SUPABASE_SETUP.md](SUPABASE_SETUP.md))
 5. Edite `database.js` e configure:

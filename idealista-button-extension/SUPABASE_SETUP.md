@@ -17,8 +17,10 @@ Este guia irá te ajudar a configurar o Supabase para substituir o Firebase na e
 4. Após login, clique em **"New Project"**
 5. Preencha os dados:
    - **Name**: Nome do projeto (ex: "idealista-extension")
-   - **Database Password**: Escolha uma senha forte (GUARDE ESTA SENHA!)
-   - **Region**: Escolha a região mais próxima (ex: "South America (São Paulo)")
+   - **Database Password**: Le120380@imobflash!
+   Escolha uma senha forte (GUARDE ESTA SENHA!)
+   - **Region**: Europe
+   Escolha a região mais próxima (ex: "South America (São Paulo)")
    - **Pricing Plan**: Selecione **"Free"** (plano gratuito)
 6. Clique em **"Create new project"**
 7. Aguarde alguns minutos enquanto o projeto é criado (pode levar 2-3 minutos)
@@ -28,22 +30,18 @@ Este guia irá te ajudar a configurar o Supabase para substituir o Firebase na e
 ## 🔑 Passo 2: Obter Credenciais da API
 
 1. No painel do Supabase, vá em **Settings** (ícone de engrenagem no menu lateral)
-2. Clique em **"API"** no menu de configurações
-3. Você verá duas informações importantes:
 
    **a) Project URL:**
-   ```
-   https://xxxxxxxxxxxxx.supabase.co
-   ```
-   Copie esta URL completa.
+   https://bhguniomuytyzrfcpbeo.supabase.co
 
    **b) API Keys:**
-   - **anon public**: Esta é a chave que você precisa
-   - Copie a chave **anon public** (não use a chave `service_role` por segurança)
+   - **anon public**: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJoZ3VuaW9tdXl0eXpyZmNwYmVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwMDAxNTQsImV4cCI6MjA4MjU3NjE1NH0.cLEcnoEXy4dANZya-pr3PYIYrgwE8eDFbULl8r0-ybM
 
-4. Anote essas informações em um local seguro:
-   - Project URL: `https://xxxxxxxxxxxxx.supabase.co`
-   - Anon Key: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` (chave longa)
+   - **service_role**:
+   eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJoZ3VuaW9tdXl0eXpyZmNwYmVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzAwMDE1NCwiZXhwIjoyMDgyNTc2MTU0fQ.3QEY5mq252ObL3ICdTqgqdgCkUbSuUUWVqZWUCgoqiM
+
+   - **api key**:
+   sb_secret_ZKPRtSPdC258JPFc9DxJgw_TKRI6psp
 
 ---
 
