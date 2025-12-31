@@ -267,6 +267,12 @@ async function selectConversation(conversationId) {
         const subtitle = `${phoneText} • 🏠 ${leadSource}`;
         document.getElementById('conversationSubtitle').textContent = subtitle;
         
+        // Mostra botões de análise
+        const analysisButtons = document.getElementById('analysisButtons');
+        if (analysisButtons) {
+            analysisButtons.style.display = 'flex';
+        }
+        
         // Carrega mensagens
         await fetchMessages(conversationId);
         
@@ -452,5 +458,308 @@ function logout() {
     sessionStorage.removeItem('imobflash_logged_in');
     sessionStorage.removeItem('imobflash_user_email');
     window.location.href = '../index.html';
+}
+
+// ========== FUNÇÕES DE ANÁLISE ==========
+
+/**
+ * Busca mensagens de uma conversa para análise
+ */
+async function fetchMessagesForAnalysis(conversationId) {
+    try {
+        const url = `${SUPABASE_CONFIG.url}/rest/v1/messages?select=*&conversation_id=eq.${encodeURIComponent(conversationId)}&order=timestamp.asc`;
+        const response = await fetch(url, {
+            headers: {
+                'apikey': SUPABASE_CONFIG.anonKey,
+                'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const messagesData = await response.json();
+            // Converte para formato esperado pela API
+            return messagesData.map(msg => ({
+                message_id: msg.message_id || msg.id || '',
+                conversation_id: msg.conversation_id || conversationId,
+                content: msg.content || '',
+                timestamp: msg.timestamp || new Date().toISOString(),
+                sender: msg.sender || 'client',
+                time: msg.time || null,
+                order: msg.order || null
+            }));
+        } else {
+            throw new Error('Erro ao buscar mensagens');
+        }
+    } catch (error) {
+        console.error('Erro ao buscar mensagens para análise:', error);
+        throw error;
+    }
+}
+
+/**
+ * Analisa mensagens de uma conversa
+ */
+async function analyzeMessages(conversationId, analysisType) {
+    if (!conversationId) {
+        showError('Selecione uma conversa primeiro');
+        return;
+    }
+    
+    try {
+        // Mostra loading
+        showInfo('Analisando mensagens...', 5000);
+        
+        // Busca mensagens
+        const messages = await fetchMessagesForAnalysis(conversationId);
+        
+        if (!messages || messages.length === 0) {
+            showError('Nenhuma mensagem encontrada nesta conversa');
+            return;
+        }
+        
+        // Chama API de análise
+        const response = await fetch(`${ANALYSIS_API_URL}/api/analysis/analyze`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                conversation_id: conversationId,
+                messages: messages,
+                analysis_type: analysisType
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: 'Erro desconhecido' }));
+            throw new Error(errorData.detail || `Erro ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            displayAnalysisResult(result.result, analysisType);
+            showSuccess('Análise concluída com sucesso!');
+        } else {
+            showError(result.error || 'Erro ao realizar análise');
+        }
+        
+    } catch (error) {
+        console.error('Erro ao analisar mensagens:', error);
+        showError(`Erro ao analisar: ${error.message}`);
+    }
+}
+
+/**
+ * Retorna nome amigável do tipo de análise
+ */
+function getAnalysisTypeName(type) {
+    const names = {
+        'summary': 'Resumo da Conversa',
+        'sentiment': 'Análise de Sentimento',
+        'intent': 'Intenção de Compra',
+        'lead_quality': 'Qualidade do Lead'
+    };
+    return names[type] || type;
+}
+
+/**
+ * Formata resultado da análise para exibição
+ */
+function formatAnalysisResult(result, type) {
+    if (!result) return '<p>Nenhum resultado disponível</p>';
+    
+    switch (type) {
+        case 'summary':
+            return formatSummaryResult(result);
+        case 'sentiment':
+            return formatSentimentResult(result);
+        case 'intent':
+            return formatIntentResult(result);
+        case 'lead_quality':
+            return formatLeadQualityResult(result);
+        default:
+            return `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+    }
+}
+
+/**
+ * Formata resultado de resumo
+ */
+function formatSummaryResult(result) {
+    let html = '<div class="analysis-summary">';
+    
+    if (result.key_info) {
+        html += '<div class="analysis-section"><h4>📋 Informações Principais</h4><ul>';
+        if (result.key_info.cliente) html += `<li><strong>Cliente:</strong> ${escapeHtml(result.key_info.cliente)}</li>`;
+        if (result.key_info.propriedade) html += `<li><strong>Propriedade:</strong> ${escapeHtml(result.key_info.propriedade)}</li>`;
+        if (result.key_info.interesse) html += `<li><strong>Interesse:</strong> ${escapeHtml(result.key_info.interesse)}</li>`;
+        if (result.key_info.contato) html += `<li><strong>Contato:</strong> ${escapeHtml(result.key_info.contato)}</li>`;
+        html += '</ul></div>';
+    }
+    
+    if (result.summary) {
+        html += `<div class="analysis-section"><h4>📝 Resumo</h4><p>${escapeHtml(result.summary)}</p></div>`;
+    }
+    
+    if (result.next_steps && result.next_steps.length > 0) {
+        html += '<div class="analysis-section"><h4>🎯 Próximos Passos</h4><ul>';
+        result.next_steps.forEach(step => {
+            html += `<li>${escapeHtml(step)}</li>`;
+        });
+        html += '</ul></div>';
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+/**
+ * Formata resultado de sentimento
+ */
+function formatSentimentResult(result) {
+    let html = '<div class="analysis-sentiment">';
+    
+    const sentiment = result.sentiment || 'neutral';
+    const score = result.score || 0;
+    const scorePercent = Math.round((score + 1) * 50); // Converte -1 a 1 para 0 a 100
+    
+    html += `<div class="sentiment-score">
+        <span class="sentiment-badge sentiment-${sentiment}">${sentiment.toUpperCase()}</span>
+        <span class="sentiment-value">${scorePercent}%</span>
+    </div>`;
+    
+    if (result.indicators && result.indicators.length > 0) {
+        html += '<div class="analysis-section"><h4>📊 Indicadores</h4><ul>';
+        result.indicators.forEach(indicator => {
+            html += `<li>${escapeHtml(indicator)}</li>`;
+        });
+        html += '</ul></div>';
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+/**
+ * Formata resultado de intenção
+ */
+function formatIntentResult(result) {
+    let html = '<div class="analysis-intent">';
+    
+    const intent = result.intent || 'low';
+    const confidence = Math.round((result.confidence || 0) * 100);
+    const urgency = result.urgency || 'low';
+    
+    html += `<div class="intent-metrics">
+        <div class="intent-item">
+            <span class="intent-label">Intenção:</span>
+            <span class="intent-badge intent-${intent}">${intent.toUpperCase()}</span>
+        </div>
+        <div class="intent-item">
+            <span class="intent-label">Confiança:</span>
+            <span class="intent-value">${confidence}%</span>
+        </div>
+        <div class="intent-item">
+            <span class="intent-label">Urgência:</span>
+            <span class="intent-badge intent-${urgency}">${urgency.toUpperCase()}</span>
+        </div>
+    </div>`;
+    
+    if (result.reasons && result.reasons.length > 0) {
+        html += '<div class="analysis-section"><h4>💡 Razões</h4><ul>';
+        result.reasons.forEach(reason => {
+            html += `<li>${escapeHtml(reason)}</li>`;
+        });
+        html += '</ul></div>';
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+/**
+ * Formata resultado de qualidade do lead
+ */
+function formatLeadQualityResult(result) {
+    let html = '<div class="analysis-lead-quality">';
+    
+    const quality = result.quality || 'cold';
+    const score = result.score || 0;
+    
+    html += `<div class="lead-quality-header">
+        <span class="lead-quality-badge lead-quality-${quality}">${quality.toUpperCase()}</span>
+        <span class="lead-quality-score">Score: ${score}/100</span>
+    </div>`;
+    
+    if (result.reasons && result.reasons.length > 0) {
+        html += '<div class="analysis-section"><h4>📌 Razões</h4><ul>';
+        result.reasons.forEach(reason => {
+            html += `<li>${escapeHtml(reason)}</li>`;
+        });
+        html += '</ul></div>';
+    }
+    
+    if (result.follow_up_suggestions && result.follow_up_suggestions.length > 0) {
+        html += '<div class="analysis-section"><h4>💼 Sugestões de Follow-up</h4><ul>';
+        result.follow_up_suggestions.forEach(suggestion => {
+            html += `<li>${escapeHtml(suggestion)}</li>`;
+        });
+        html += '</ul></div>';
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+/**
+ * Exibe resultado da análise em um modal
+ */
+function displayAnalysisResult(result, analysisType) {
+    // Remove modal existente se houver
+    const existingModal = document.getElementById('analysisModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // Cria modal
+    const modal = document.createElement('div');
+    modal.id = 'analysisModal';
+    modal.className = 'analysis-modal';
+    
+    const typeName = getAnalysisTypeName(analysisType);
+    const formattedResult = formatAnalysisResult(result, analysisType);
+    
+    modal.innerHTML = `
+        <div class="modal-content analysis-modal-content">
+            <div class="modal-header">
+                <h3>${typeName}</h3>
+                <button class="modal-close" onclick="closeAnalysisModal()">×</button>
+            </div>
+            <div class="modal-body analysis-modal-body">
+                ${formattedResult}
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Fecha ao clicar fora
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            closeAnalysisModal();
+        }
+    });
+}
+
+/**
+ * Fecha o modal de análise
+ */
+function closeAnalysisModal() {
+    const modal = document.getElementById('analysisModal');
+    if (modal) {
+        modal.remove();
+    }
 }
 

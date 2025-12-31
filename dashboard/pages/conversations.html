@@ -72,6 +72,20 @@
                             </div>
                         </div>
                         <div class="messages-actions">
+                            <div class="analysis-buttons" id="analysisButtons" style="display: none;">
+                                <button class="btn btn-analysis" onclick="analyzeMessages(selectedConversationId, 'summary')" title="Resumir Conversa">
+                                    📊 Resumir Conversa
+                                </button>
+                                <button class="btn btn-analysis" onclick="analyzeMessages(selectedConversationId, 'sentiment')" title="Análise de Sentimento">
+                                    😊 Análise de Sentimento
+                                </button>
+                                <button class="btn btn-analysis" onclick="analyzeMessages(selectedConversationId, 'intent')" title="Intenção de Compra">
+                                    🎯 Intenção de Compra
+                                </button>
+                                <button class="btn btn-analysis" onclick="analyzeMessages(selectedConversationId, 'lead_quality')" title="Qualidade do Lead">
+                                    ⭐ Qualidade do Lead
+                                </button>
+                            </div>
                             <input type="text" class="search-box" id="searchMessages" placeholder="Buscar nas mensagens..." onkeyup="filterMessages()">
                         </div>
                     </div>
