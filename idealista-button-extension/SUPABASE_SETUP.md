@@ -66,7 +66,9 @@ CREATE TABLE IF NOT EXISTS conversations (
     url TEXT DEFAULT '',
     is_read BOOLEAN DEFAULT false,
     unread_count INTEGER DEFAULT 0,
-    has_unread BOOLEAN DEFAULT false
+    has_unread BOOLEAN DEFAULT false,
+    property_url TEXT,
+    is_lead BOOLEAN
 );
 
 -- Tabela de mensagens
@@ -77,6 +79,7 @@ CREATE TABLE IF NOT EXISTS messages (
     timestamp TIMESTAMPTZ DEFAULT NOW(),
     sender TEXT DEFAULT 'unknown',
     time TEXT DEFAULT '',
+    "order" INTEGER DEFAULT 0,
     FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
 );
 

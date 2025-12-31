@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conversas - ImobFlash</title>
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="../css/conversations.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>🏠 ImobFlash</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="../dashboard.html" class="nav-item">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="conversations.html" class="nav-item active">
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-text">Conversas</span>
+                </a>
+                <a href="settings.html" class="nav-item">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Configurações</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="dashboard-header">
+                <h1>💬 Conversas</h1>
+                <div class="header-actions">
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span id="connectionStatus">Conectado</span>
+                    </div>
+                    <button class="btn btn-primary" onclick="refreshConversations()">🔄 Atualizar</button>
+                    <button class="btn btn-logout" onclick="logout()">Sair</button>
+                </div>
+            </header>
+
+            <!-- Conversations Layout (Outlook Style) -->
+            <div class="conversations-layout">
+                <!-- Left Panel: Conversations List (Smaller) -->
+                <div class="conversations-panel">
+                    <div class="conversations-header">
+                        <h3>Conversas</h3>
+                        <input type="text" class="search-box" id="searchConversations" placeholder="Buscar conversas..." onkeyup="filterConversations()">
+                    </div>
+                    <div class="conversations-list" id="conversationsList">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            <p>Carregando conversas...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Panel: Messages (Larger) -->
+                <div class="messages-panel">
+                    <div class="messages-header">
+                        <div class="selected-conversation-info" id="selectedConversationInfo">
+                            <div class="conversation-avatar">💬</div>
+                            <div class="conversation-details">
+                                <h3 id="conversationTitle">Selecione uma conversa</h3>
+                                <p id="conversationSubtitle">Escolha uma conversa da lista para ver as mensagens</p>
+                            </div>
+                        </div>
+                        <div class="messages-actions">
+                            <input type="text" class="search-box" id="searchMessages" placeholder="Buscar nas mensagens..." onkeyup="filterMessages()">
+                        </div>
+                    </div>
+                    <div class="messages-content" id="messagesContent">
+                        <div class="empty-messages">
+                            <div class="empty-state-icon">💬</div>
+                            <p>Nenhuma conversa selecionada</p>
+                            <p style="font-size: 14px; color: var(--text-muted); margin-top: 8px;">Selecione uma conversa da lista ao lado para ver as mensagens</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../js/config.js"></script>
+    <script src="../js/toast.js"></script>
+    <script src="../js/conversations.js"></script>
+</body>
+</html>
+

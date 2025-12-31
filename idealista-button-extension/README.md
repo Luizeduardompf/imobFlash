@@ -113,7 +113,8 @@ Cada mensagem do chat contém:
   "content": "string",
   "timestamp": "ISO string",
   "sender": "client" | "agent",
-  "time": "string"
+  "time": "string",
+  "order": "number"
 }
 ```
 

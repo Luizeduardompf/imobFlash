@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geral - Configurações - ImobFlash</title>
+    <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>🏠 ImobFlash</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="../../dashboard.html" class="nav-item">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="../conversations.html" class="nav-item">
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-text">Conversas</span>
+                </a>
+                <a href="../settings.html" class="nav-item active">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Configurações</span>
+                </a>
+            </nav>
+            
+            <!-- Submenu de Configurações -->
+            <nav class="sidebar-subnav" id="settingsSubnav">
+                <a href="geral.html" class="subnav-item active">
+                    <span class="subnav-icon">⚙️</span>
+                    <span class="subnav-text">Geral</span>
+                </a>
+                <a href="database.html" class="subnav-item">
+                    <span class="subnav-icon">🗄️</span>
+                    <span class="subnav-text">Base de Dados</span>
+                </a>
+                <a href="origens.html" class="subnav-item">
+                    <span class="subnav-icon">🏠</span>
+                    <span class="subnav-text">Origens</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="dashboard-header">
+                <h1>⚙️ Configurações Gerais</h1>
+                <div class="header-actions">
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span id="connectionStatus">Conectado</span>
+                    </div>
+                    <button class="btn btn-logout" onclick="logout()">Sair</button>
+                </div>
+            </header>
+
+            <!-- Settings Content -->
+            <div class="dashboard-content">
+                <div class="settings-container">
+                    <h2 class="settings-title">⚙️ Configurações Gerais do Sistema</h2>
+                    
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">ℹ️ Sobre o Sistema</h3>
+                        <p class="settings-description">Informações gerais sobre o ImobFlash.</p>
+                        
+                        <div class="settings-card">
+                            <div class="settings-card-header">
+                                <h4>Informações do Sistema</h4>
+                            </div>
+                            <div class="settings-card-body">
+                                <div style="display: grid; gap: 16px;">
+                                    <div>
+                                        <label style="color: var(--text-muted); font-size: 12px; display: block; margin-bottom: 4px;">Versão</label>
+                                        <p style="color: var(--text); font-size: 14px;">1.0.0</p>
+                                    </div>
+                                    <div>
+                                        <label style="color: var(--text-muted); font-size: 12px; display: block; margin-bottom: 4px;">Descrição</label>
+                                        <p style="color: var(--text); font-size: 14px;">Sistema de gerenciamento de conversas e leads imobiliários.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../../js/config.js"></script>
+    <script>
+        // Função de logout
+        function logout() {
+            if (confirm('Deseja realmente sair?')) {
+                window.location.href = '../../index.html';
+            }
+        }
+    </script>
+</body>
+</html>
+

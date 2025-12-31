@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Origens - Configurações - ImobFlash</title>
+    <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>🏠 ImobFlash</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="../../dashboard.html" class="nav-item">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="../conversations.html" class="nav-item">
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-text">Conversas</span>
+                </a>
+                <a href="../settings.html" class="nav-item active">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Configurações</span>
+                </a>
+            </nav>
+            
+            <!-- Submenu de Configurações -->
+            <nav class="sidebar-subnav" id="settingsSubnav">
+                <a href="geral.html" class="subnav-item">
+                    <span class="subnav-icon">⚙️</span>
+                    <span class="subnav-text">Geral</span>
+                </a>
+                <a href="database.html" class="subnav-item">
+                    <span class="subnav-icon">🗄️</span>
+                    <span class="subnav-text">Base de Dados</span>
+                </a>
+                <a href="origens.html" class="subnav-item active">
+                    <span class="subnav-icon">🏠</span>
+                    <span class="subnav-text">Origens</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="dashboard-header">
+                <h1>🏠 Origens de Leads</h1>
+                <div class="header-actions">
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span id="connectionStatus">Conectado</span>
+                    </div>
+                    <button class="btn btn-logout" onclick="logout()">Sair</button>
+                </div>
+            </header>
+
+            <!-- Settings Content -->
+            <div class="dashboard-content">
+                <div class="settings-container">
+                    <h2 class="settings-title">🏠 Gerenciar Origens de Leads</h2>
+                    
+                    <div class="settings-section">
+                        <p class="settings-description">Gerencie as origens de leads disponíveis no sistema.</p>
+                        
+                        <!-- Lista de Origens -->
+                        <div class="settings-card">
+                            <div class="settings-card-header">
+                                <h4>Origens Cadastradas</h4>
+                                <button class="btn btn-primary" onclick="showAddOriginModal()">➕ Adicionar Origem</button>
+                            </div>
+                            <div class="settings-card-body">
+                                <div id="originsList" class="origins-list">
+                                    <div class="loading">
+                                        <div class="spinner"></div>
+                                        <p>Carregando origens...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Adicionar/Editar Origem -->
+    <div id="originModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Adicionar Origem</h3>
+                <button class="modal-close" onclick="closeOriginModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="originForm" onsubmit="saveOrigin(event)">
+                    <input type="hidden" id="originId" value="">
+                    <div class="form-group">
+                        <label for="originSource">Nome da Origem</label>
+                        <input type="text" id="originSource" class="form-input" required placeholder="Ex: Idealista, OLX, etc.">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeOriginModal()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Salvar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../../js/config.js"></script>
+    <script src="../../js/toast.js"></script>
+    <script src="../../js/settings-origins.js"></script>
+</body>
+</html>
+

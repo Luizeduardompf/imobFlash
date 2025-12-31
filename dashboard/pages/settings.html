@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurações - ImobFlash</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>🏠 ImobFlash</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="../dashboard.html" class="nav-item">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="conversations.html" class="nav-item">
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-text">Conversas</span>
+                </a>
+                <a href="settings.html" class="nav-item active">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Configurações</span>
+                </a>
+            </nav>
+            
+            <!-- Submenu de Configurações -->
+            <nav class="sidebar-subnav" id="settingsSubnav">
+                <a href="settings/geral.html" class="subnav-item">
+                    <span class="subnav-icon">⚙️</span>
+                    <span class="subnav-text">Geral</span>
+                </a>
+                <a href="settings/database.html" class="subnav-item">
+                    <span class="subnav-icon">🗄️</span>
+                    <span class="subnav-text">Base de Dados</span>
+                </a>
+                <a href="settings/origens.html" class="subnav-item">
+                    <span class="subnav-icon">🏠</span>
+                    <span class="subnav-text">Origens</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="dashboard-header">
+                <h1>⚙️ Configurações</h1>
+                <div class="header-actions">
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span id="connectionStatus">Conectado</span>
+                    </div>
+                    <button class="btn btn-logout" onclick="logout()">Sair</button>
+                </div>
+            </header>
+
+            <!-- Settings Content -->
+            <div class="dashboard-content">
+                <div class="settings-container">
+                    <h2 class="settings-title">⚙️ Configurações do Sistema</h2>
+                    
+                    <div class="settings-section">
+                        <p class="settings-description">Selecione uma opção no menu lateral para acessar as configurações.</p>
+                        
+                        <div class="settings-card">
+                            <div class="settings-card-header">
+                                <h4>Opções Disponíveis</h4>
+                            </div>
+                            <div class="settings-card-body">
+                                <div style="display: grid; gap: 16px;">
+                                    <a href="settings/geral.html" class="btn btn-primary" style="text-align: left; display: block; text-decoration: none;">
+                                        <strong>⚙️ Geral</strong><br>
+                                        <span style="font-size: 12px; opacity: 0.8;">Configurações gerais do sistema</span>
+                                    </a>
+                                    <a href="settings/database.html" class="btn btn-primary" style="text-align: left; display: block; text-decoration: none;">
+                                        <strong>🗄️ Base de Dados</strong><br>
+                                        <span style="font-size: 12px; opacity: 0.8;">Gerenciar e limpar dados do banco</span>
+                                    </a>
+                                    <a href="settings/origens.html" class="btn btn-primary" style="text-align: left; display: block; text-decoration: none;">
+                                        <strong>🏠 Origens</strong><br>
+                                        <span style="font-size: 12px; opacity: 0.8;">Gerenciar origens de leads</span>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../js/config.js"></script>
+    <script>
+        // Função de logout
+        function logout() {
+            if (confirm('Deseja realmente sair?')) {
+                window.location.href = '../index.html';
+            }
+        }
+    </script>
+</body>
+</html>
+

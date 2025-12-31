@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Base de Dados - Configurações - ImobFlash</title>
+    <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>🏠 ImobFlash</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="../../dashboard.html" class="nav-item">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="../conversations.html" class="nav-item">
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-text">Conversas</span>
+                </a>
+                <a href="../settings.html" class="nav-item active">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Configurações</span>
+                </a>
+            </nav>
+            
+            <!-- Submenu de Configurações -->
+            <nav class="sidebar-subnav" id="settingsSubnav">
+                <a href="geral.html" class="subnav-item">
+                    <span class="subnav-icon">⚙️</span>
+                    <span class="subnav-text">Geral</span>
+                </a>
+                <a href="database.html" class="subnav-item active">
+                    <span class="subnav-icon">🗄️</span>
+                    <span class="subnav-text">Base de Dados</span>
+                </a>
+                <a href="origens.html" class="subnav-item">
+                    <span class="subnav-icon">🏠</span>
+                    <span class="subnav-text">Origens</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="dashboard-header">
+                <h1>🗄️ Base de Dados</h1>
+                <div class="header-actions">
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span id="connectionStatus">Conectado</span>
+                    </div>
+                    <button class="btn btn-logout" onclick="logout()">Sair</button>
+                </div>
+            </header>
+
+            <!-- Settings Content -->
+            <div class="dashboard-content">
+                <div class="settings-container">
+                    <h2 class="settings-title">🗄️ Gerenciamento da Base de Dados</h2>
+                    
+                    <!-- Limpeza de Dados -->
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">🗑️ Limpeza de Dados</h3>
+                        <p class="settings-description">Gerencie e limpe os dados do banco de dados. Use com cuidado!</p>
+                        
+                        <!-- Limpar Conversa Específica -->
+                        <div class="settings-card">
+                            <div class="settings-card-header">
+                                <h4>Limpar Conversa Específica</h4>
+                                <p>Selecione uma conversa para deletar todas as suas mensagens e a própria conversa.</p>
+                            </div>
+                            <div class="settings-card-body">
+                                <select id="conversationSelect" class="form-select">
+                                    <option value="">Carregando conversas...</option>
+                                </select>
+                                <button class="btn btn-danger" onclick="deleteSelectedConversation()" style="margin-top: 16px;">
+                                    🗑️ Deletar Conversa Selecionada
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Limpar Todo o Banco -->
+                        <div class="settings-card danger-card">
+                            <div class="settings-card-header">
+                                <h4>⚠️ Limpar Todo o Banco de Dados</h4>
+                                <p class="danger-text">Esta ação irá deletar TODAS as conversas e mensagens. Esta ação não pode ser desfeita!</p>
+                            </div>
+                            <div class="settings-card-body">
+                                <button class="btn btn-danger btn-large" onclick="deleteAllData()">
+                                    🗑️ Deletar Tudo
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Estatísticas do Banco -->
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">📊 Estatísticas do Banco de Dados</h3>
+                        <p class="settings-description">Informações sobre o estado atual do banco de dados.</p>
+                        
+                        <div class="settings-card">
+                            <div class="settings-card-header">
+                                <h4>Resumo</h4>
+                            </div>
+                            <div class="settings-card-body">
+                                <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 16px;">
+                                    <div class="stat-card">
+                                        <div class="stat-header">
+                                            <span class="stat-title">Total de Conversas</span>
+                                            <span class="stat-icon">💬</span>
+                                        </div>
+                                        <div class="stat-value" id="settingsStatConversations">0</div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="stat-header">
+                                            <span class="stat-title">Total de Mensagens</span>
+                                            <span class="stat-icon">📨</span>
+                                        </div>
+                                        <div class="stat-value" id="settingsStatMessages">0</div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="stat-header">
+                                            <span class="stat-title">Conversas com Telefone</span>
+                                            <span class="stat-icon">📞</span>
+                                        </div>
+                                        <div class="stat-value" id="settingsStatWithPhone">0</div>
+                                    </div>
+                                </div>
+                                <button class="btn btn-primary" onclick="refreshStats()" style="margin-top: 16px;">
+                                    🔄 Atualizar Estatísticas
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Informações do Sistema -->
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">ℹ️ Informações do Sistema</h3>
+                        <p class="settings-description">Informações sobre a configuração atual do sistema.</p>
+                        
+                        <div class="settings-card">
+                            <div class="settings-card-header">
+                                <h4>Configuração do Supabase</h4>
+                            </div>
+                            <div class="settings-card-body">
+                                <div style="display: grid; gap: 12px;">
+                                    <div>
+                                        <label style="color: var(--text-muted); font-size: 12px; display: block; margin-bottom: 4px;">URL do Supabase</label>
+                                        <code style="background: var(--dark); padding: 8px 12px; border-radius: 4px; display: block; font-size: 12px; color: var(--text);">
+                                            <span id="supabaseUrl">Carregando...</span>
+                                        </code>
+                                    </div>
+                                    <div>
+                                        <label style="color: var(--text-muted); font-size: 12px; display: block; margin-bottom: 4px;">Status da Conexão</label>
+                                        <div id="connectionInfo" style="padding: 8px 12px; background: var(--dark); border-radius: 4px; font-size: 12px;">
+                                            Verificando...
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../../js/config.js"></script>
+    <script src="../../js/toast.js"></script>
+    <script src="../../js/settings.js"></script>
+</body>
+</html>
+

@@ -26,8 +26,8 @@ Extensão para Chrome que adiciona funcionalidades à página de conversas do Id
 
 **Configuração:**
 
-- Suporta Supabase (recomendado), API REST ou localStorage
-- Guias disponíveis: [SUPABASE_SETUP.md](idealista-button-extension/SUPABASE_SETUP.md), [DATABASE_SETUP.md](idealista-button-extension/DATABASE_SETUP.md)
+- Suporta Supabase (recomendado) ou API REST
+- Guias disponíveis: [SUPABASE_SETUP.md](idealista-button-extension/SUPABASE_SETUP.md)
 
 ---
 
@@ -35,27 +35,30 @@ Extensão para Chrome que adiciona funcionalidades à página de conversas do Id
 
 Dashboard web para visualizar conversas e mensagens em tempo real.
 
-**Localização:** `idealista-button-extension/dashboard.html`
+**Localização:** `dashboard/`
 
 **Funcionalidades:**
 
-- 📈 Estatísticas em tempo real (total de conversas, mensagens, não lidas)
+- 🔐 Tela de login
+- 📈 Estatísticas em tempo real (total de conversas, mensagens, não lidas, com telefone)
 - 💬 Lista de conversas ordenadas por data
 - 🔍 Busca por nome, telefone ou conteúdo
-- 📨 Visualização completa de mensagens
-- 🔄 Atualização em tempo real via Supabase
+- 📨 Visualização completa de mensagens com filtros
+- 🔄 Atualização em tempo real via Supabase Realtime (WebSocket)
+- 🎨 Interface moderna e responsiva
 
-**Documentação:** [DASHBOARD_README.md](idealista-button-extension/DASHBOARD_README.md)
+**Documentação:** [README do Dashboard](dashboard/README.md)
 
 **Como usar:**
 
 ```bash
 # Servidor local (recomendado)
+cd dashboard
 python3 -m http.server 8000
 # ou
 npx http-server -p 8000
 
-# Acesse: http://localhost:8000/dashboard.html
+# Acesse: http://localhost:8000/index.html
 ```
 
 ---
@@ -89,10 +92,18 @@ imobFlash/
 ├── idealista-button-extension/    # Extensão Chrome
 │   ├── content.js                 # Script principal da extensão
 │   ├── database.js                # Gerenciamento de banco de dados
-│   ├── dashboard.html             # Dashboard web
-│   ├── database.js                # Configuração de banco de dados
 │   ├── manifest.json              # Manifest da extensão
 │   └── README.md                  # Documentação da extensão
+├── dashboard/                     # Dashboard web
+│   ├── index.html                 # Tela de login
+│   ├── dashboard.html             # Dashboard principal
+│   ├── css/
+│   │   └── style.css             # Estilos
+│   ├── js/
+│   │   ├── config.js              # Configuração Supabase
+│   │   ├── auth.js                # Autenticação
+│   │   └── dashboard.js          # Lógica do dashboard
+│   └── README.md                  # Documentação do dashboard
 ├── app/                           # Aplicativo (em desenvolvimento)
 └── README.md                      # Este arquivo
 ```
@@ -105,25 +116,27 @@ imobFlash/
 2. Ative "Modo do desenvolvedor"
 3. Clique em "Carregar sem compactação"
 4. Selecione a pasta `idealista-button-extension/`
-5. Configure o banco de dados (veja [DATABASE_SETUP.md](idealista-button-extension/DATABASE_SETUP.md))
+5. Configure o banco de dados (veja [SUPABASE_SETUP.md](idealista-button-extension/SUPABASE_SETUP.md))
 
 ### 2. Configurar o Dashboard
 
 1. Configure o Supabase (veja [SUPABASE_SETUP.md](idealista-button-extension/SUPABASE_SETUP.md))
-2. Inicie um servidor local:
+2. Configure as credenciais em `dashboard/js/config.js`
+3. Inicie um servidor local:
 
    ```bash
+   cd dashboard
    python3 -m http.server 8000
    ```
 
-3. Acesse `http://localhost:8000/dashboard.html`
+4. Acesse `http://localhost:8000/index.html`
+5. Faça login (por enquanto aceita qualquer email/senha)
 
 ## 📚 Documentação
 
 - [Extensão - README](idealista-button-extension/README.md)
-- [Dashboard - README](idealista-button-extension/DASHBOARD_README.md)
+- [Dashboard - README](dashboard/README.md)
 - [Configuração Supabase](idealista-button-extension/SUPABASE_SETUP.md)
-- [Configuração do Banco de Dados](idealista-button-extension/DATABASE_SETUP.md)
 
 ## 🔧 Configuração
 
@@ -133,7 +146,6 @@ O projeto suporta múltiplas opções de banco de dados:
 
 1. **Supabase** (Recomendado) - [Guia de Setup](idealista-button-extension/SUPABASE_SETUP.md)
 2. **API REST** - Configure endpoint personalizado
-3. **localStorage** - Apenas local (sem sincronização)
 
 ## 📊 Estrutura de Dados
 

@@ -23,6 +23,29 @@ const DB_CONFIG = {
 };
 
 /**
+ * Detecta o ID da origem do lead baseado na URL
+ * @param {string} url - URL da página
+ * @returns {number} ID da origem (1 = Idealista, 2 = Outro)
+ */
+function detectLeadSourceId(url) {
+    if (!url) return 2; // Outro
+    
+    const urlLower = url.toLowerCase();
+    
+    // Detecta Idealista
+    if (urlLower.includes('idealista')) {
+        return 1; // Idealista
+    }
+    
+    // Adicione outros sites aqui conforme necessário
+    // if (urlLower.includes('outro-site')) {
+    //     return 3; // Outro Site (precisa ser criado na tabela lead_sources)
+    // }
+    
+    return 2; // Outro
+}
+
+/**
  * Estrutura de dados de uma conversa
  */
 class Conversation {
@@ -41,6 +64,9 @@ class Conversation {
         this.unreadCount = data.unreadCount || 0;
         this.hasUnread = data.hasUnread || false;
         this.metadata = data.metadata || {};
+        this.leadSourceId = data.leadSourceId || detectLeadSourceId(this.url);
+        this.propertyUrl = data.propertyUrl || null; // URL do anúncio extraída da primeira mensagem
+        this.isLead = data.isLead !== undefined ? data.isLead : null; // NULL até que seja possível determinar
     }
 
     toJSON() {
@@ -58,7 +84,10 @@ class Conversation {
             isRead: this.isRead,
             unreadCount: this.unreadCount,
             hasUnread: this.hasUnread,
-            metadata: this.metadata
+            metadata: this.metadata,
+            leadSourceId: this.leadSourceId,
+            propertyUrl: this.propertyUrl,
+            isLead: this.isLead
         };
     }
 }
@@ -74,6 +103,7 @@ class ChatMessage {
         this.timestamp = data.timestamp || new Date().toISOString();
         this.sender = data.sender || 'unknown'; // 'client' ou 'agent'
         this.time = data.time || '';
+        this.order = data.order !== undefined ? data.order : 0; // Ordem de exibição na página
     }
 
     toJSON() {
@@ -83,7 +113,8 @@ class ChatMessage {
             content: this.content,
             timestamp: this.timestamp,
             sender: this.sender,
-            time: this.time
+            time: this.time,
+            order: this.order
         };
     }
 }
@@ -227,7 +258,10 @@ async function saveToSupabase(data) {
             url: data.url || '',
             is_read: data.isRead || false,
             unread_count: data.unreadCount || 0,
-            has_unread: data.hasUnread || false
+            has_unread: data.hasUnread || false,
+            lead_source_id: data.leadSourceId || detectLeadSourceId(data.url), // ID da origem do lead detectada automaticamente
+            property_url: data.propertyUrl || null, // URL do anúncio extraída da primeira mensagem
+            is_lead: data.isLead !== undefined ? data.isLead : null // NULL até que seja possível determinar
         };
         
         const response = await fetch(url, {
@@ -246,26 +280,71 @@ async function saveToSupabase(data) {
             return true;
         } else {
             const errorText = await response.text();
-            console.error('❌ Erro HTTP ao salvar no Supabase:', response.status, response.statusText);
-            console.error('Resposta do servidor:', errorText);
             
             try {
                 const errorJson = JSON.parse(errorText);
+                
+                // Erro 409 = Conversa já existe (não é um erro crítico)
+                if (response.status === 409) {
+                    // Verifica se precisa atualizar phoneNumber
+                    const hasNewPhone = data.phoneNumber && data.phoneNumber.trim().length > 0;
+                    
+                    if (hasNewPhone) {
+                        // Busca a conversa existente para verificar se tem phoneNumber
+                        const getUrl = `${DB_CONFIG.supabase.url}/rest/v1/conversations?conversation_id=eq.${encodeURIComponent(data.conversationId)}&select=phone_number&limit=1`;
+                        const getResponse = await fetch(getUrl, {
+                            method: 'GET',
+                            headers: {
+                                'apikey': DB_CONFIG.supabase.anonKey,
+                                'Authorization': `Bearer ${DB_CONFIG.supabase.anonKey}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        
+                        if (getResponse.ok) {
+                            const existingData = await getResponse.json();
+                            if (existingData && existingData.length > 0) {
+                                const existingPhone = existingData[0].phone_number || '';
+                                const hasExistingPhone = existingPhone && existingPhone.trim().length > 0;
+                                
+                                // Só atualiza se não tiver phoneNumber existente
+                                if (!hasExistingPhone) {
+                                    console.log('📞 Conversa já existe sem phoneNumber, atualizando phoneNumber:', data.conversationId);
+                                    return await updateConversationInSupabase(data.conversationId, { phoneNumber: data.phoneNumber });
+                                } else {
+                                    console.log('ℹ️ Conversa já existe no Supabase (phoneNumber protegido):', data.conversationId);
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Conversa já existe e não precisa atualizar
+                    console.log('ℹ️ Conversa já existe no Supabase:', data.conversationId);
+                    return true;
+                }
+                
+                // Outros erros são críticos
+                console.error('❌ Erro HTTP ao salvar no Supabase:', response.status, response.statusText);
+                console.error('Resposta do servidor:', errorText);
                 console.error('Erro detalhado:', errorJson);
                 
                 if (response.status === 403 || response.status === 401) {
                     console.error('🔒 ERRO DE PERMISSÃO: Verifique as políticas RLS (Row Level Security) do Supabase.');
                     console.error('💡 SOLUÇÃO: Configure as políticas RLS para permitir INSERT na tabela conversations');
-                } else if (response.status === 409) {
-                    // Conflito - conversa já existe, tenta atualizar
-                    console.log('⚠️ Conversa já existe, tentando atualizar...');
-                    return await updateConversationInSupabase(data.conversationId, { phoneNumber: data.phoneNumber });
                 }
             } catch (e) {
                 // Não é JSON
+                console.error('❌ Erro HTTP ao salvar no Supabase:', response.status, response.statusText);
+                console.error('Resposta do servidor:', errorText);
             }
             
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            // Só lança erro se não for 409 (que já foi tratado)
+            if (response.status !== 409) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            return true; // 409 já foi tratado como sucesso
         }
     } catch (error) {
         console.error('❌ Erro ao salvar no Supabase:', error);
@@ -373,7 +452,8 @@ async function saveMessagesToSupabase(messages) {
                 content: message.content || '',
                 timestamp: convertToSupabaseTimestamp(message.timestamp),
                 sender: message.sender || 'unknown',
-                time: message.time || ''
+                time: message.time || '',
+                order: message.order !== undefined ? message.order : 0
             };
             
             const url = `${DB_CONFIG.supabase.url}/rest/v1/messages`;
@@ -395,12 +475,36 @@ async function saveMessagesToSupabase(messages) {
                     console.log('✅ Mensagem salva:', messageId);
                 } else {
                     const errorText = await response.text();
-                    console.warn('⚠️ Erro ao salvar mensagem:', messageId, response.status);
+                    let isDuplicate = false;
+                    
                     try {
                         const errorJson = JSON.parse(errorText);
-                        console.warn('Erro detalhado:', errorJson);
+                        
+                        // Erro 409 = Mensagem já existe (não é um erro crítico)
+                        if (response.status === 409) {
+                            isDuplicate = true;
+                            skippedCount++;
+                            console.log('⏭️ Mensagem já existe no Supabase, pulando:', messageId);
+                        } else {
+                            // Outros erros são críticos
+                            console.warn('⚠️ Erro ao salvar mensagem:', messageId, response.status);
+                            console.warn('Erro detalhado:', errorJson);
+                        }
                     } catch (e) {
-                        console.warn('Erro texto:', errorText.substring(0, 200));
+                        // Não é JSON
+                        if (response.status === 409) {
+                            isDuplicate = true;
+                            skippedCount++;
+                            console.log('⏭️ Mensagem já existe no Supabase, pulando:', messageId);
+                        } else {
+                            console.warn('⚠️ Erro ao salvar mensagem:', messageId, response.status);
+                            console.warn('Erro texto:', errorText.substring(0, 200));
+                        }
+                    }
+                    
+                    // Se for duplicata, pula para próxima mensagem
+                    if (isDuplicate) {
+                        continue;
                     }
                 }
             } catch (error) {
@@ -410,6 +514,34 @@ async function saveMessagesToSupabase(messages) {
 
         if (savedCount > 0 || skippedCount > 0) {
             console.log(`✅ ${savedCount} novas mensagens salvas, ${skippedCount} duplicadas puladas de ${messages.length} total para conversa ${conversationId}`);
+        }
+        
+        // Após salvar todas as mensagens, atualiza o last_message_date da conversa
+        // com o timestamp da mensagem mais recente
+        if (messages.length > 0 && typeof updateConversationInSupabase === 'function') {
+            // Encontra a mensagem com o timestamp mais recente
+            let latestMessage = messages[0];
+            for (const msg of messages) {
+                if (msg.timestamp) {
+                    const msgDate = new Date(msg.timestamp);
+                    const latestDate = new Date(latestMessage.timestamp || 0);
+                    if (msgDate > latestDate) {
+                        latestMessage = msg;
+                    }
+                }
+            }
+            
+            // Atualiza a conversa com o timestamp da mensagem mais recente
+            if (latestMessage.timestamp) {
+                try {
+                    await updateConversationInSupabase(conversationId, {
+                        lastMessageDate: latestMessage.timestamp
+                    });
+                    console.log('✅ last_message_date atualizado com timestamp da mensagem mais recente:', latestMessage.timestamp);
+                } catch (err) {
+                    console.warn('⚠️ Erro ao atualizar last_message_date após salvar mensagens:', err);
+                }
+            }
         }
         
         return savedCount > 0;
@@ -574,20 +706,43 @@ async function updateConversationInSupabase(conversationId, updates) {
             }
         }
         
-        // Regra: lastMessageDate só atualiza se:
-        // 1. O novo valor não está vazio E
-        // 2. O valor atual está vazio/null
+        // Regra: lastMessageDate SEMPRE atualiza com o timestamp da última mensagem
+        // Sempre atualiza quando há um novo valor, comparando timestamps para garantir que é mais recente
         if (updates.lastMessageDate !== undefined) {
             const currentLastMessageDate = currentData?.last_message_date || '';
             const newLastMessageDate = String(updates.lastMessageDate || '').trim();
             
-            if (newLastMessageDate && !currentLastMessageDate) {
-                supabaseUpdates.last_message_date = convertToSupabaseTimestamp(newLastMessageDate);
-                console.log('✅ Atualizando lastMessageDate de vazio para:', supabaseUpdates.last_message_date);
-            } else if (newLastMessageDate && currentLastMessageDate) {
-                console.log('ℹ️ LastMessageDate já existe, mantendo valor atual:', currentLastMessageDate);
+            if (newLastMessageDate) {
+                // Se não há valor atual, atualiza diretamente
+                if (!currentLastMessageDate) {
+                    supabaseUpdates.last_message_date = convertToSupabaseTimestamp(newLastMessageDate);
+                    console.log('✅ Atualizando lastMessageDate (primeira vez):', supabaseUpdates.last_message_date);
+                } else {
+                    // Compara timestamps para ver se o novo é mais recente ou igual
+                    try {
+                        const currentDate = new Date(currentLastMessageDate);
+                        const newDate = new Date(newLastMessageDate);
+                        
+                        // Se o novo timestamp é mais recente ou igual, atualiza
+                        if (newDate >= currentDate) {
+                            supabaseUpdates.last_message_date = convertToSupabaseTimestamp(newLastMessageDate);
+                            console.log('✅ Atualizando lastMessageDate (novo timestamp mais recente ou igual):', supabaseUpdates.last_message_date);
+                        } else {
+                            // Se o novo é mais antigo, não atualiza (pode ser uma mensagem antiga sendo processada)
+                            console.log('ℹ️ LastMessageDate não atualizado (novo timestamp é mais antigo que o atual):', {
+                                atual: currentLastMessageDate,
+                                novo: newLastMessageDate
+                            });
+                        }
+                    } catch (e) {
+                        // Se houver erro ao comparar, atualiza de qualquer forma (melhor ser seguro)
+                        console.warn('⚠️ Erro ao comparar timestamps, atualizando lastMessageDate de qualquer forma:', e);
+                        supabaseUpdates.last_message_date = convertToSupabaseTimestamp(newLastMessageDate);
+                    }
+                }
             } else if (!newLastMessageDate && currentLastMessageDate) {
-                console.log('🔒 LastMessageDate atual protegido, não será sobrescrito para vazio');
+                // Se o novo valor está vazio mas há um valor atual, mantém o atual
+                console.log('ℹ️ LastMessageDate vazio, mantendo valor atual:', currentLastMessageDate);
             } else {
                 console.log('ℹ️ LastMessageDate vazio, não atualizando');
             }
@@ -596,11 +751,49 @@ async function updateConversationInSupabase(conversationId, updates) {
         if (updates.isRead !== undefined) {
             supabaseUpdates.is_read = Boolean(updates.isRead);
         }
+        
+        // Regra: propertyUrl só atualiza se:
+        // 1. O novo valor não está vazio E
+        // 2. O valor atual está vazio/null
+        if (updates.propertyUrl !== undefined) {
+            const newPropertyUrl = String(updates.propertyUrl || '').trim();
+            const currentPropertyUrl = (currentData?.property_url || '').trim();
+            
+            if (newPropertyUrl && !currentPropertyUrl) {
+                supabaseUpdates.property_url = newPropertyUrl;
+                console.log('✅ Atualizando propertyUrl de vazio para:', newPropertyUrl);
+            } else if (newPropertyUrl && currentPropertyUrl) {
+                console.log('ℹ️ PropertyUrl já existe, mantendo valor atual:', currentPropertyUrl);
+            } else if (!newPropertyUrl && currentPropertyUrl) {
+                console.log('🔒 PropertyUrl atual protegido, não será sobrescrito para vazio');
+            } else {
+                console.log('ℹ️ PropertyUrl vazio, não atualizando');
+            }
+        }
         if (updates.unreadCount !== undefined) {
             supabaseUpdates.unread_count = updates.unreadCount;
         }
         if (updates.hasUnread !== undefined) {
             supabaseUpdates.has_unread = Boolean(updates.hasUnread);
+        }
+        
+        // Regra: isLead só atualiza se:
+        // 1. O novo valor não é NULL E
+        // 2. O valor atual é NULL (ainda não foi determinado) OU mudou
+        if (updates.isLead !== undefined && updates.isLead !== null) {
+            const newIsLead = Boolean(updates.isLead);
+            const currentIsLead = currentData?.is_lead;
+            
+            // Só atualiza se o valor atual é NULL (ainda não determinado) ou se mudou
+            if (currentIsLead === null || currentIsLead === undefined || newIsLead !== currentIsLead) {
+                supabaseUpdates.is_lead = newIsLead;
+                console.log(`✅ Atualizando isLead de ${currentIsLead === null || currentIsLead === undefined ? 'NULL' : currentIsLead} para ${newIsLead}`);
+            } else {
+                console.log(`ℹ️ IsLead não mudou, mantendo valor atual: ${currentIsLead}`);
+            }
+        } else if (updates.isLead === null) {
+            // Se o valor é explicitamente NULL, não atualiza (mantém o valor atual se existir)
+            console.log('ℹ️ IsLead é NULL, não atualizando (mantendo valor atual se existir)');
         }
         
         // Se não houver campos para atualizar, retorna sem fazer nada

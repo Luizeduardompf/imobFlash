@@ -833,7 +833,28 @@
                 }
             }
 
-            // Padrão 2: Data e mês abreviado (ex: "26 dez.", "31 out.")
+            // Padrão 2: Data completa com barras (ex: "10/05/2024", "10/05/24")
+            const datePattern = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/;
+            const dateMatch = trimmed.match(datePattern);
+            if (dateMatch) {
+                const day = parseInt(dateMatch[1], 10);
+                const month = parseInt(dateMatch[2], 10) - 1; // Mês é 0-indexed
+                let year = parseInt(dateMatch[3], 10);
+                
+                // Se o ano tem apenas 2 dígitos, assume 20xx
+                if (year < 100) {
+                    year = 2000 + year;
+                }
+                
+                if (day >= 1 && day <= 31 && month >= 0 && month < 12 && year >= 2000 && year <= 2100) {
+                    // Assume hora 00:00
+                    const messageDate = new Date(year, month, day, 0, 0, 0, 0);
+                    // Retorna timestamp ISO (termina com 'Z')
+                    return messageDate.toISOString();
+                }
+            }
+
+            // Padrão 3: Data e mês abreviado (ex: "26 dez.", "31 out.")
             const monthNames = {
                 'jan': 0, 'jan.': 0, 'janeiro': 0,
                 'fev': 1, 'fev.': 1, 'fevereiro': 1,
@@ -1241,18 +1262,21 @@
 
     /**
      * Converte o time extraído (hora ou data+hora) em timestamp ISO completo
-     * Se for apenas hora (ex: "14:30"), usa a data atual e adiciona essa hora
+     * Se for apenas hora (ex: "14:30"), usa a data do divisor de dia ou data atual
      * Se tiver data (ex: "26/12 14:30" ou "26/12/2024 14:30"), parse a data e hora
      * @param {string} timeStr - String com hora ou data+hora (ex: "14:30", "26/12 14:30", "26/12/2024 14:30")
+     * @param {Date|null} dayDividerDate - Data do divisor de dia mais próximo (opcional)
      * @returns {string} Timestamp ISO completo ou null se não conseguir parsear
      */
-    function parseMessageTimestamp(timeStr) {
+    function parseMessageTimestamp(timeStr, dayDividerDate = null) {
         if (!timeStr || !timeStr.trim()) {
             return null;
         }
 
         const trimmed = timeStr.trim();
         const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
         
         try {
             // Padrão 1: Apenas hora (ex: "14:30")
@@ -1263,7 +1287,14 @@
                 const minutes = parseInt(timeOnlyMatch[2], 10);
                 
                 if (hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
-                    // Usa a data atual e adiciona a hora
+                    // Prioriza a data do divisor de dia (mais próxima e precisa)
+                    if (dayDividerDate) {
+                        const messageDate = new Date(dayDividerDate);
+                        messageDate.setHours(hours, minutes, 0, 0);
+                        return messageDate.toISOString();
+                    }
+                    
+                    // Se não há divisor, usa a data atual
                     const messageDate = new Date(now);
                     messageDate.setHours(hours, minutes, 0, 0);
                     return messageDate.toISOString();
@@ -1281,8 +1312,9 @@
                 
                 if (day >= 1 && day <= 31 && month >= 0 && month < 12 && 
                     hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
-                    // Assume o ano atual
-                    const messageDate = new Date(now.getFullYear(), month, day, hours, minutes, 0, 0);
+                    // Determina o ano correto baseado no mês
+                    const year = determineYear(month, currentMonth, currentYear);
+                    const messageDate = new Date(year, month, day, hours, minutes, 0, 0);
                     return messageDate.toISOString();
                 }
             }
@@ -1314,13 +1346,273 @@
     }
 
     /**
+     * Determina o ano correto baseado no mês da mensagem e mês atual
+     * Se o mês da mensagem é maior que o mês atual, provavelmente é do ano passado
+     * Ex: Estamos em janeiro (mês 0) e a mensagem é de dezembro (mês 11) = ano passado
+     * @param {number} messageMonth - Mês da mensagem (0-11)
+     * @param {number} currentMonth - Mês atual (0-11)
+     * @param {number} currentYear - Ano atual
+     * @returns {number} Ano correto para a mensagem
+     */
+    function determineYear(messageMonth, currentMonth, currentYear) {
+        // Se o mês da mensagem é maior que o mês atual, provavelmente é do ano passado
+        // Ex: Estamos em janeiro (0) e a mensagem é de dezembro (11) = ano passado
+        // Ex: Estamos em janeiro (0) e a mensagem é de maio (4) = ano passado
+        if (messageMonth > currentMonth) {
+            return currentYear - 1;
+        }
+        
+        // Se o mês da mensagem é menor que o mês atual, é do ano corrente
+        // Ex: Estamos em dezembro (11) e a mensagem é de maio (4) = ano corrente
+        if (messageMonth < currentMonth) {
+            return currentYear;
+        }
+        
+        // Se é o mesmo mês, é do ano corrente
+        // Ex: Estamos em maio (4) e a mensagem é de maio (4) = ano corrente
+        return currentYear;
+    }
+
+    /**
+     * Extrai a data de um divisor de dia
+     * @param {HTMLElement} divider - Elemento do divisor de dia
+     * @returns {Date|null} Data do divisor ou null
+     */
+    function parseDayDividerDate(divider) {
+        if (!divider) return null;
+        
+        const text = divider.textContent?.trim() || '';
+        if (!text) return null;
+        
+        try {
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth();
+            
+            // Formato 1: "Hoje", "Ontem"
+            const lowerText = text.toLowerCase();
+            if (lowerText.includes('hoje')) {
+                return new Date(currentYear, currentMonth, now.getDate());
+            }
+            if (lowerText.includes('ontem')) {
+                const yesterday = new Date(now);
+                yesterday.setDate(yesterday.getDate() - 1);
+                return new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
+            }
+            
+            // Formato 2: "28 DEZ." ou "28 DEZ" (formato abreviado português)
+            const monthNames = {
+                'jan': 0, 'jan.': 0, 'janeiro': 0,
+                'fev': 1, 'fev.': 1, 'fevereiro': 1,
+                'mar': 2, 'mar.': 2, 'março': 2,
+                'abr': 3, 'abr.': 3, 'abril': 3,
+                'mai': 4, 'mai.': 4, 'maio': 4,
+                'jun': 5, 'jun.': 5, 'junho': 5,
+                'jul': 6, 'jul.': 6, 'julho': 6,
+                'ago': 7, 'ago.': 7, 'agosto': 7,
+                'set': 8, 'set.': 8, 'setembro': 8,
+                'out': 9, 'out.': 9, 'outubro': 9,
+                'nov': 10, 'nov.': 10, 'novembro': 10,
+                'dez': 11, 'dez.': 11, 'dezembro': 11
+            };
+            
+            // Padrão: "28 DEZ." ou "28 DEZ" (dia + mês abreviado em maiúsculas)
+            const datePattern1 = /^(\d{1,2})\s+([A-Z]{3,9}\.?)$/;
+            const dateMatch1 = text.match(datePattern1);
+            if (dateMatch1) {
+                const day = parseInt(dateMatch1[1], 10);
+                const monthName = dateMatch1[2].toLowerCase();
+                const month = monthNames[monthName];
+                
+                if (month !== undefined && day >= 1 && day <= 31) {
+                    // Determina o ano correto baseado no mês
+                    const year = determineYear(month, currentMonth, currentYear);
+                    return new Date(year, month, day);
+                }
+            }
+            
+            // Formato 3: "26 de dezembro" (português completo)
+            const datePattern2 = /^(\d{1,2})\s+de\s+(\w+)(?:\s+de\s+(\d{4}))?$/i;
+            const dateMatch2 = text.match(datePattern2);
+            if (dateMatch2) {
+                const day = parseInt(dateMatch2[1], 10);
+                const monthName = dateMatch2[2].toLowerCase();
+                const month = monthNames[monthName];
+                
+                if (month !== undefined && day >= 1 && day <= 31) {
+                    // Se o ano foi especificado, usa ele; senão determina baseado no mês
+                    const year = dateMatch2[3] 
+                        ? parseInt(dateMatch2[3], 10) 
+                        : determineYear(month, currentMonth, currentYear);
+                    return new Date(year, month, day);
+                }
+            }
+            
+            // Formato 4: "26/12" ou "26/12/2024"
+            const datePattern3 = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/;
+            const dateMatch3 = text.match(datePattern3);
+            if (dateMatch3) {
+                const day = parseInt(dateMatch3[1], 10);
+                const month = parseInt(dateMatch3[2], 10) - 1; // Mês é 0-indexed
+                
+                if (day >= 1 && day <= 31 && month >= 0 && month < 12) {
+                    // Se o ano foi especificado, usa ele; senão determina baseado no mês
+                    const year = dateMatch3[3] 
+                        ? parseInt(dateMatch3[3], 10) 
+                        : determineYear(month, currentMonth, currentYear);
+                    return new Date(year, month, day);
+                }
+            }
+            
+            console.warn('⚠️ Não foi possível parsear a data do divisor:', text);
+            return null;
+        } catch (error) {
+            console.error('❌ Erro ao parsear data do divisor:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Encontra o divisor de dia mais próximo anterior a um elemento
+     * @param {HTMLElement} element - Elemento de mensagem (wrapper ou container)
+     * @param {NodeList} allDividers - Lista de todos os divisores de dia (não usado, mantido para compatibilidade)
+     * @returns {Date|null} Data do divisor ou null
+     */
+    function findClosestDayDivider(element, allDividers) {
+        if (!element) return null;
+        
+        // Busca o container de mensagens (_messages--container)
+        let messagesContainer = element.closest('._messages--container_');
+        if (!messagesContainer) {
+            // Tenta encontrar pelo seletor alternativo (pode ter hash diferente)
+            messagesContainer = element.closest('[class*="_messages--container"]');
+        }
+        
+        if (!messagesContainer) {
+            // Tenta buscar o container de outra forma (pode estar em um nível diferente)
+            const conversationDetail = element.closest('[data-testid="conversation-detail-component"]');
+            if (conversationDetail) {
+                messagesContainer = conversationDetail.querySelector('[class*="_messages--container"]');
+            }
+        }
+        
+        if (!messagesContainer) {
+            console.warn('⚠️ Container de mensagens não encontrado para elemento:', element);
+            return null;
+        }
+        
+        // Obtém todos os elementos filhos diretos do container (divisores e wrappers de mensagens)
+        const allChildren = Array.from(messagesContainer.children);
+        
+        // Se o elemento passado é o wrapper, usa ele diretamente
+        // Se é o container da mensagem, busca o wrapper pai ou usa o próprio elemento
+        let targetElement = element;
+        
+        // Verifica se o elemento já é um wrapper
+        const isWrapper = element.classList && (
+            element.classList.toString().includes('message-container__wrapper') ||
+            Array.from(element.classList).some(cls => cls.includes('message-container__wrapper'))
+        );
+        
+        if (!isWrapper) {
+            // Tenta encontrar o wrapper pai
+            targetElement = element.closest('._message-container__wrapper_') || 
+                          element.closest('[class*="message-container__wrapper"]') ||
+                          element.parentElement; // Usa o pai como fallback
+            
+            // Se o pai não parece ser um wrapper, usa o elemento original
+            if (targetElement && targetElement !== element) {
+                const parentIsWrapper = targetElement.classList && (
+                    targetElement.classList.toString().includes('message-container__wrapper') ||
+                    Array.from(targetElement.classList).some(cls => cls.includes('message-container__wrapper'))
+                );
+                if (!parentIsWrapper) {
+                    targetElement = element;
+                }
+            } else {
+                targetElement = element;
+            }
+        }
+        
+        const elementIndex = allChildren.indexOf(targetElement);
+        
+        if (elementIndex === -1) {
+            // Se não encontrou diretamente, tenta buscar pelo container da mensagem
+            const messageContainer = element.closest('[data-testid="message-container"]');
+            if (messageContainer) {
+                const containerWrapper = messageContainer.closest('[class*="message-container__wrapper"]');
+                if (containerWrapper) {
+                    const wrapperIndex = allChildren.indexOf(containerWrapper);
+                    if (wrapperIndex !== -1) {
+                        targetElement = containerWrapper;
+                        // Continua com o índice encontrado
+                        return findDividerFromIndex(allChildren, wrapperIndex);
+                    }
+                }
+            }
+            
+            // Última tentativa: busca qualquer elemento que contenha o elemento atual
+            for (let i = 0; i < allChildren.length; i++) {
+                const child = allChildren[i];
+                if (child.contains && child.contains(element)) {
+                    return findDividerFromIndex(allChildren, i);
+                }
+            }
+            
+            console.warn('⚠️ Elemento não encontrado no container de mensagens, tentando busca alternativa...');
+            // Retorna null mas não quebra o fluxo
+            return null;
+        }
+        
+        return findDividerFromIndex(allChildren, elementIndex);
+    }
+    
+    /**
+     * Função auxiliar para buscar divisor a partir de um índice
+     */
+    function findDividerFromIndex(allChildren, startIndex) {
+        // Busca o divisor mais próximo anterior ao elemento
+        for (let i = startIndex - 1; i >= 0; i--) {
+            const child = allChildren[i];
+            
+            // Verifica se é um divisor de dia (pode ter hash diferente na classe)
+            const isDivider = child.classList && (
+                child.classList.toString().includes('_chat-day-divider_') ||
+                Array.from(child.classList).some(cls => cls.includes('chat-day-divider'))
+            );
+            
+            if (isDivider) {
+                // O divisor pode estar diretamente no child ou dentro dele
+                let divider = child;
+                if (!child.classList.toString().includes('_chat-day-divider_')) {
+                    const nestedDivider = child.querySelector('[class*="chat-day-divider"]');
+                    if (nestedDivider) {
+                        divider = nestedDivider;
+                    }
+                }
+                
+                const dividerDate = parseDayDividerDate(divider);
+                if (dividerDate) {
+                    console.log(`✅ Divisor de dia encontrado: ${divider.textContent?.trim()} → ${dividerDate.toLocaleDateString('pt-BR')}`);
+                    return dividerDate;
+                }
+            }
+        }
+        
+        console.warn('⚠️ Nenhum divisor de dia encontrado anterior à mensagem');
+        return null;
+    }
+
+    /**
      * Extrai todas as mensagens do chat aberto
-     * @returns {Array<Object>} Array de mensagens
+     * @returns {Object} Objeto com {messages: Array, propertyUrl: string|null, isLead: boolean} - Array de mensagens, URL do anúncio e se é lead
      */
     function extractChatMessages() {
         const messages = [];
+        let propertyUrl = null;
+        let isLead = null; // NULL até que seja possível determinar (true = lead, false = não-lead)
         const conversationContainer = document.querySelector('[data-testid="conversation-detail-component"]');
-        if (!conversationContainer) return messages;
+        if (!conversationContainer) return { messages, propertyUrl, isLead };
 
         // Obtém o ID da conversa atual - busca pelo botão ativo na lista
         let conversationId = 'unknown';
@@ -1330,8 +1622,13 @@
             conversationId = activeLi?.getAttribute('data-conversation-id') || 'unknown';
         }
 
+        // Busca todos os divisores de dia para referência
+        const dayDividers = conversationContainer.querySelectorAll('._chat-day-divider_');
+        console.log(`📅 Encontrados ${dayDividers.length} divisores de dia`);
+
         // Busca todos os containers de mensagens
         const messageContainers = conversationContainer.querySelectorAll('[data-testid="message-container"]');
+        console.log(`📨 Encontrados ${messageContainers.length} containers de mensagens`);
         
         messageContainers.forEach((container, index) => {
             try {
@@ -1339,6 +1636,47 @@
                 // Cliente tem classe: _message-container__box--is-from-other_ssm3t_45
                 const isFromOther = container.classList.contains('_message-container__box--is-from-other_ssm3t_45');
                 const sender = isFromOther ? 'client' : 'agent';
+
+                // Determina se é lead baseado na primeira mensagem
+                if (index === 0) {
+                    // Se a primeira mensagem é do cliente, é um lead (cliente iniciou)
+                    // Se a primeira mensagem é do agente, não é um lead (agente iniciou)
+                    isLead = isFromOther;
+                    console.log(`🏷️ Tipo de conversa detectado: ${isLead ? 'LEAD' : 'NÃO-LEAD'} (primeira mensagem: ${sender})`);
+                }
+
+                // Extrai o link do anúncio da primeira mensagem (seja do cliente ou do agente)
+                if (index === 0 && !propertyUrl) {
+                    // Busca o link do anúncio dentro do container da mensagem
+                    // Pode estar em: a._property-card_ ou a[class*="property-card"]
+                    let propertyCard = container.querySelector('a._property-card_');
+                    if (!propertyCard) {
+                        // Tenta buscar por seletor mais genérico
+                        propertyCard = container.querySelector('a[class*="property-card"]');
+                    }
+                    if (!propertyCard) {
+                        // Tenta buscar qualquer link que contenha "/imovel/" no href
+                        const allLinks = container.querySelectorAll('a[href*="/imovel/"]');
+                        if (allLinks.length > 0) {
+                            propertyCard = allLinks[0];
+                        }
+                    }
+                    
+                    if (propertyCard) {
+                        const href = propertyCard.getAttribute('href');
+                        if (href) {
+                            // Constrói a URL completa (relativa ou absoluta)
+                            if (href.startsWith('/')) {
+                                propertyUrl = `https://www.idealista.pt${href}`;
+                            } else if (href.startsWith('http')) {
+                                propertyUrl = href;
+                            } else {
+                                propertyUrl = `https://www.idealista.pt/${href}`;
+                            }
+                            console.log(`🏠 Link do anúncio extraído da primeira mensagem (${sender}): ${propertyUrl}`);
+                        }
+                    }
+                }
 
                 // Extrai conteúdo da mensagem
                 const messageContent = container.querySelector('._message-text__content_136tk_1');
@@ -1354,25 +1692,58 @@
                 const messageInfo = container.querySelector('._message-container__info_ssm3t_108');
                 const time = messageInfo?.textContent?.trim() || '';
 
+                // Encontra o divisor de dia mais próximo anterior
+                // Passa o wrapper da mensagem para buscar corretamente no container
+                // Tenta múltiplos seletores para encontrar o wrapper
+                let messageWrapper = container.closest('._message-container__wrapper_');
+                if (!messageWrapper) {
+                    // Tenta seletor alternativo com hash variável
+                    messageWrapper = container.closest('[class*="_message-container__wrapper"]');
+                }
+                if (!messageWrapper) {
+                    // Tenta buscar o pai direto que pode ser o wrapper
+                    const parent = container.parentElement;
+                    if (parent && (
+                        parent.classList.toString().includes('message-container__wrapper') ||
+                        Array.from(parent.classList).some(cls => cls.includes('message-container__wrapper'))
+                    )) {
+                        messageWrapper = parent;
+                    }
+                }
+                
+                // Se ainda não encontrou, usa o container diretamente (algumas mensagens podem não ter wrapper)
+                // Isso é normal e não deve gerar aviso
+                const elementForDividerSearch = messageWrapper || container;
+                const dayDividerDate = findClosestDayDivider(elementForDividerSearch, dayDividers);
+                
                 // Converte o time em timestamp completo (data/hora real da mensagem)
-                const messageTimestamp = parseMessageTimestamp(time);
+                // Passa a data do divisor de dia como referência
+                const messageTimestamp = parseMessageTimestamp(time, dayDividerDate);
                 
                 // Se não conseguiu parsear o timestamp, usa o timestamp atual como fallback
                 // mas loga um aviso
                 const timestamp = messageTimestamp || new Date().toISOString();
                 if (!messageTimestamp && time) {
                     console.warn('⚠️ Usando timestamp atual como fallback para time:', time);
+                } else if (dayDividerDate && messageTimestamp) {
+                    console.log(`✅ Timestamp construído usando divisor de dia: ${dayDividerDate.toLocaleDateString('pt-BR')} + ${time} = ${messageTimestamp}`);
                 }
 
-                // Gera ID único para a mensagem (usando hash do conteúdo para garantir unicidade)
-                // Remove caracteres especiais e limita tamanho
+                // Gera ID único e determinístico para a mensagem
+                // Usa hash do conteúdo + timestamp real + sender para garantir unicidade
+                // Isso evita duplicatas quando a mesma mensagem é processada múltiplas vezes
                 const contentHash = content
-                    .substring(0, 30)
+                    .substring(0, 50)
                     .replace(/[^\w]/g, '')
                     .toLowerCase();
-                const timestampForId = Date.now();
-                const random = Math.random().toString(36).substr(2, 6);
-                const messageId = `${conversationId}_${index}_${contentHash}_${timestampForId}_${random}`;
+                
+                // Usa o timestamp real da mensagem (não Date.now()) para garantir determinismo
+                const timestampHash = timestamp ? 
+                    timestamp.replace(/[^\w]/g, '').substring(0, 15) : 
+                    Date.now().toString().substring(0, 10);
+                
+                // ID determinístico: mesmo conteúdo + mesmo timestamp + mesmo sender = mesmo ID
+                const messageId = `${conversationId}_${sender}_${contentHash}_${timestampHash}`;
 
                 if (content) {
                     messages.push({
@@ -1381,7 +1752,8 @@
                         content,
                         timestamp: timestamp, // ✅ Usa timestamp real da mensagem
                         sender,
-                        time
+                        time,
+                        order: index + 1 // Ordem de exibição (1-based, baseada na posição na página)
                     });
                 }
             } catch (error) {
@@ -1389,7 +1761,7 @@
             }
         });
 
-        return messages;
+        return { messages, propertyUrl, isLead };
     }
 
     // Flag para evitar múltiplos processamentos do mesmo chat
@@ -1483,7 +1855,8 @@
                         }
                     }
                 } else {
-                    console.warn('⚠️ Botão de telefone não encontrado');
+                    // É normal algumas conversas não terem botão de telefone disponível
+                    console.log('ℹ️ Botão de telefone não encontrado - isso é normal se a conversa não tiver número disponível');
                 }
             }
             
@@ -1504,8 +1877,8 @@
                 }
             }
 
-            // Extrai todas as mensagens
-            const messages = extractChatMessages();
+            // Extrai todas as mensagens, o link do anúncio e o tipo de conversa (lead/não-lead)
+            const { messages, propertyUrl, isLead } = extractChatMessages();
             
             if (messages.length === 0) {
                 console.log('⚠️ Nenhuma mensagem encontrada no chat');
@@ -1515,6 +1888,15 @@
 
             console.log(`📨 ${messages.length} mensagens extraídas do chat`);
             console.log('📋 Mensagens:', messages.map(m => ({ sender: m.sender, content: m.content.substring(0, 50) + '...' })));
+            if (isLead !== null && isLead !== undefined) {
+                console.log(`🏷️ Tipo de conversa: ${isLead ? 'LEAD' : 'NÃO-LEAD'}`);
+            } else {
+                console.log('🏷️ Tipo de conversa: Ainda não determinado (NULL)');
+            }
+            
+            if (propertyUrl) {
+                console.log(`🏠 Link do anúncio extraído: ${propertyUrl}`);
+            }
 
             // Atualiza a conversa com o phoneNumber e detalhes do chat
             if (typeof updateConversation !== 'undefined') {
@@ -1596,11 +1978,33 @@
                         // PhoneNumber não disponível agora, mas já existe no cache - não atualiza
                         console.log('ℹ️ PhoneNumber não disponível, mas já existe no cache. Não será atualizado.');
                     } else if (!phoneNumber) {
-                        console.warn('⚠️ PhoneNumber não disponível no momento do processamento do chat');
+                        // É normal algumas conversas não terem número disponível imediatamente
+                        console.log('ℹ️ PhoneNumber não disponível no momento do processamento - tentando novamente em 2 segundos...');
                         // Tenta atualizar novamente após um delay
                         setTimeout(async () => {
                             await updatePhoneNumberInDatabase();
                         }, 2000);
+                    }
+                    
+                    // Verifica se propertyUrl foi encontrado e precisa ser salvo
+                    if (propertyUrl) {
+                        const cachedPropertyUrl = cached?.propertyUrl || '';
+                        if (propertyUrl !== cachedPropertyUrl) {
+                            updateData.propertyUrl = propertyUrl;
+                            hasChanges = true;
+                            console.log('✅ PropertyUrl encontrado e será salvo:', propertyUrl);
+                        }
+                    }
+                    
+                    // Verifica se isLead foi detectado e precisa ser salvo
+                    // Só atualiza se isLead não for NULL (foi possível determinar)
+                    const cachedIsLead = cached?.isLead;
+                    if (isLead !== null && isLead !== undefined && isLead !== cachedIsLead) {
+                        updateData.isLead = isLead;
+                        hasChanges = true;
+                        console.log(`✅ Tipo de conversa detectado e será salvo: ${isLead ? 'LEAD' : 'NÃO-LEAD'}`);
+                    } else if (isLead === null) {
+                        console.log('ℹ️ Tipo de conversa ainda não determinado (isLead = NULL), não será atualizado');
                     }
                     
                     // Se não houve mudanças, não atualiza

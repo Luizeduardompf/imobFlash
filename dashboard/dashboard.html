@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - ImobFlash</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>🏠 ImobFlash</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-section="dashboard" onclick="showSection('dashboard'); return false;">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="pages/conversations.html" class="nav-item">
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-text">Conversas</span>
+                </a>
+                <a href="pages/settings.html" class="nav-item">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Configurações</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="dashboard-header">
+                <h1>🏠 ImobFlash Dashboard</h1>
+                <div class="header-actions">
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span id="connectionStatus">Conectado</span>
+                    </div>
+                    <button class="btn btn-logout" onclick="logout()">Sair</button>
+                </div>
+            </header>
+
+            <!-- Dashboard Section -->
+            <div class="content-section" id="section-dashboard">
+                <div class="dashboard-content">
+                    <!-- Stats Cards -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-title">Total de Conversas</span>
+                        <span class="stat-icon">💬</span>
+                    </div>
+                    <div class="stat-value" id="statConversations">0</div>
+                    <div class="stat-change">Todas as conversas</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-title">Total de Mensagens</span>
+                        <span class="stat-icon">📨</span>
+                    </div>
+                    <div class="stat-value" id="statMessages">0</div>
+                    <div class="stat-change">Todas as mensagens</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-title">Não Lidas</span>
+                        <span class="stat-icon">🔔</span>
+                    </div>
+                    <div class="stat-value" id="statUnread">0</div>
+                    <div class="stat-change">Conversas não lidas</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-title">Com Telefone</span>
+                        <span class="stat-icon">📞</span>
+                    </div>
+                    <div class="stat-value" id="statWithPhone">0</div>
+                    <div class="stat-change">Conversas com telefone</div>
+                </div>
+            </div>
+
+            <!-- Main Grid -->
+            <div class="dashboard-grid">
+                <!-- Conversations Card -->
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <h2 class="card-title">Conversas</h2>
+                        <div class="card-actions">
+                            <button class="btn btn-primary" onclick="refreshConversations()">🔄 Atualizar</button>
+                        </div>
+                    </div>
+                    <input type="text" class="search-box" id="searchConversations" placeholder="Buscar conversas..." onkeyup="filterConversations()">
+                    <div class="conversations-list" id="conversationsList">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            <p>Carregando conversas...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Messages Card -->
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <h2 class="card-title">Mensagens</h2>
+                        <div class="card-actions">
+                            <select id="conversationFilter" class="btn" onchange="filterMessages()" style="background: var(--dark); color: var(--text); border: 1px solid var(--border);">
+                                <option value="">Todas as conversas</option>
+                            </select>
+                        </div>
+                    </div>
+                    <input type="text" class="search-box" id="searchMessages" placeholder="Buscar mensagens..." onkeyup="filterMessages()">
+                    <div class="messages-list" id="messagesList">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            <p>Carregando mensagens...</p>
+                        </div>
+                    </div>
+                </div>
+                </div>
+                </div>
+
+            <!-- Settings Section -->
+            <div class="content-section" id="section-settings" style="display: none;">
+                <div class="dashboard-content">
+                    <div class="settings-container">
+                        <h2 class="settings-title">⚙️ Configurações</h2>
+                        
+                        <div class="settings-section">
+                            <h3 class="settings-section-title">🗑️ Limpeza de Dados</h3>
+                            <p class="settings-description">Gerencie e limpe os dados do banco de dados.</p>
+                            
+                            <div class="settings-card">
+                                <div class="settings-card-header">
+                                    <h4>Limpar Conversa Específica</h4>
+                                    <p>Selecione uma conversa para deletar todas as suas mensagens e a própria conversa.</p>
+                                </div>
+                                <div class="settings-card-body">
+                                    <select id="conversationSelect" class="form-select">
+                                        <option value="">Selecione uma conversa...</option>
+                                    </select>
+                                    <button class="btn btn-danger" onclick="deleteSelectedConversation()" style="margin-top: 16px;">
+                                        🗑️ Deletar Conversa Selecionada
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="settings-card danger-card">
+                                <div class="settings-card-header">
+                                    <h4>⚠️ Limpar Todo o Banco de Dados</h4>
+                                    <p class="danger-text">Esta ação irá deletar TODAS as conversas e mensagens. Esta ação não pode ser desfeita!</p>
+                                </div>
+                                <div class="settings-card-body">
+                                    <button class="btn btn-danger btn-large" onclick="deleteAllData()">
+                                        🗑️ Deletar Tudo
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/toast.js"></script>
+    <script src="js/dashboard.js"></script>
+</body>
+</html>
+
