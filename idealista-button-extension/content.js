@@ -1042,17 +1042,25 @@
         }
 
         // VERIFICA SE A CONVERSA JÁ EXISTE NO BANCO DE DADOS
+        let conversationAlreadyExists = false;
         try {
             if (typeof conversationExists !== 'undefined') {
                 const exists = await conversationExists(data.conversationId);
                 if (exists) {
                     console.log('ℹ️ Conversa já existe no banco de dados:', data.conversationId, '- Não será salva novamente');
                     monitoredConversations.add(data.conversationId);
-                    return; // Não salva se já existe
+                    conversationAlreadyExists = true;
+                    // NÃO retorna aqui - continua para verificar Agente IA mesmo se já existe
                 }
             }
         } catch (error) {
             console.warn('⚠️ Erro ao verificar se conversa existe, continuando...', error);
+        }
+        
+        // Se a conversa já existe, apenas retorna (não processa Agente IA aqui)
+        // O Agente IA só processa quando a conversa está ABERTA (em processOpenChat)
+        if (conversationAlreadyExists) {
+            return;
         }
 
         monitoredConversations.add(data.conversationId);
@@ -1077,6 +1085,10 @@
             console.error('❌ Erro ao salvar conversa:', error);
             console.error('Detalhes do erro:', error.message);
         }
+
+        // NOTA: Agente IA só processa quando a conversa está ABERTA
+        // A verificação é feita em processOpenChat() quando o chat é aberto
+        // Isso evita processar todas as conversas na lista
     }
 
     /**
@@ -2033,6 +2045,40 @@
                             lastMessage: lastMessageContent.substring(0, 50) + '...'
                         });
                         
+                        // Verifica se não tem telefone e processa com Agente IA
+                        // IMPORTANTE: Só processa se a conversa estiver ABERTA (já está aberta aqui)
+                        if (!phoneNumber || !phoneNumber.trim()) {
+                            console.log('📱 Conversa ABERTA sem telefone detectada! Processando com Agente IA...', {
+                                conversationId: conversationId,
+                                userName: getCurrentUserName(),
+                                lastMessage: lastMessageContent?.substring(0, 50)
+                            });
+                            
+                            // Verifica se é a conversa atual aberta
+                            const currentOpenConversationId = getCurrentConversationId();
+                            if (currentOpenConversationId === conversationId) {
+                                // Aguarda um pouco antes de processar (3-5 segundos)
+                                const delay = Math.random() * 2000 + 3000;
+                                console.log(`⏱️ Aguardando ${Math.round(delay/1000)}s antes de processar com Agente IA...`);
+                                setTimeout(() => {
+                                    // Verifica novamente se ainda é a conversa aberta antes de processar
+                                    const stillOpen = getCurrentConversationId();
+                                    if (stillOpen === conversationId) {
+                                        checkAndProcessConversationWithoutPhone(
+                                            conversationId, 
+                                            phoneNumber || '', 
+                                            getCurrentUserName() || '', 
+                                            lastMessageContent || ''
+                                        );
+                                    } else {
+                                        console.log('ℹ️ Conversa foi fechada antes de processar, cancelando Agente IA');
+                                    }
+                                }, delay);
+                            } else {
+                                console.log('ℹ️ Conversa não está mais aberta, não processando Agente IA');
+                            }
+                        }
+                        
                         // Atualiza cache com os novos valores
                         if (!cached) {
                             conversationCache.set(conversationId, {
@@ -2286,6 +2332,474 @@
         }, 3000);
     }
 
+    // ============================================================================
+    // AGENTE IA - SOLICITAÇÃO AUTOMÁTICA DE TELEFONE
+    // ============================================================================
+
+    let agentIASettings = null;
+    let processedConversationsWithoutPhone = new Set();
+
+    /**
+     * Busca configurações do Agente IA do Supabase
+     */
+    async function loadAgentIASettings() {
+        try {
+            if (!DB_CONFIG.supabase.url || !DB_CONFIG.supabase.anonKey) {
+                console.warn('⚠️ Supabase não configurado para Agente IA');
+                return null;
+            }
+
+            console.log('📥 Buscando configurações do Agente IA...');
+            const url = `${DB_CONFIG.supabase.url}/rest/v1/agent_ia_settings?select=*&limit=1`;
+            const response = await fetch(url, {
+                headers: {
+                    'apikey': DB_CONFIG.supabase.anonKey,
+                    'Authorization': `Bearer ${DB_CONFIG.supabase.anonKey}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                console.log('📋 Resposta do Supabase:', data);
+                if (data && data.length > 0) {
+                    if (data[0].enabled) {
+                        agentIASettings = data[0];
+                        console.log('✅ Configurações do Agente IA carregadas e ativadas');
+                        return agentIASettings;
+                    } else {
+                        console.log('ℹ️ Agente IA está desativado nas configurações');
+                    }
+                } else {
+                    console.warn('⚠️ Nenhuma configuração do Agente IA encontrada no Supabase');
+                }
+            } else {
+                const errorText = await response.text();
+                console.error('❌ Erro ao buscar configurações:', response.status, errorText);
+            }
+        } catch (error) {
+            console.error('❌ Erro ao carregar configurações do Agente IA:', error);
+        }
+        return null;
+    }
+
+    /**
+     * Gera resposta usando OpenAI para solicitar telefone
+     */
+    async function generatePhoneRequestMessage(clientMessage, userName) {
+        if (!agentIASettings || !agentIASettings.openai_key) {
+            console.warn('⚠️ Agente IA não configurado ou sem chave OpenAI');
+            return null;
+        }
+
+        try {
+            console.log('🤖 Chamando OpenAI para gerar mensagem...');
+            const systemPrompt = `Você é um assistente imobiliário profissional e educado. Sua função é solicitar o número de telefone do cliente de forma natural e profissional, preferencialmente WhatsApp. Seja breve, educado e explique o motivo (para poder ligar e passar todas as informações).`;
+
+            const userPrompt = `Cliente "${userName}" enviou a seguinte mensagem: "${clientMessage}"
+
+Baseado no prompt configurado: "${agentIASettings.phone_prompt}"
+
+Gere uma resposta educada e profissional solicitando o número de telefone (preferencialmente WhatsApp) do cliente. A resposta deve ser natural, breve e explicar que você precisa do telefone para ligar e passar todas as informações sobre a propriedade.`;
+
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${agentIASettings.openai_key}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: 'gpt-4o-mini',
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: userPrompt }
+                    ],
+                    max_tokens: 150,
+                    temperature: 0.7
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const message = data.choices[0]?.message?.content?.trim();
+                if (message) {
+                    console.log('✅ Resposta gerada pelo Agente IA:', message);
+                    return message;
+                } else {
+                    console.warn('⚠️ Resposta vazia da OpenAI');
+                }
+            } else {
+                const error = await response.json().catch(() => ({}));
+                console.error('❌ Erro ao gerar resposta da OpenAI:', response.status, error);
+            }
+        } catch (error) {
+            console.error('❌ Erro ao chamar OpenAI:', error);
+        }
+        return null;
+    }
+
+    /**
+     * Insere mensagem no textarea e envia
+     */
+    async function sendMessageToClient(message) {
+        try {
+            // Encontra o textarea
+            const textarea = document.querySelector('textarea[placeholder*="Escreve" i], textarea[aria-label*="mensagem" i]');
+            if (!textarea) {
+                console.warn('⚠️ Textarea não encontrado');
+                return false;
+            }
+
+            // Adiciona delay aleatório entre 2-5 segundos antes de digitar
+            const typingDelay = Math.random() * 3000 + 2000; // 2-5 segundos
+            await new Promise(resolve => setTimeout(resolve, typingDelay));
+
+            // Simula digitação (opcional, mas mais natural)
+            textarea.focus();
+            textarea.value = '';
+            
+            // Digita a mensagem caractere por caractere (simula digitação humana)
+            for (let i = 0; i < message.length; i++) {
+                textarea.value += message[i];
+                textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                
+                // Delay aleatório entre caracteres (50-150ms)
+                const charDelay = Math.random() * 100 + 50;
+                await new Promise(resolve => setTimeout(resolve, charDelay));
+            }
+
+            // Dispara evento de input para garantir que o botão de enviar seja habilitado
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            textarea.dispatchEvent(new Event('change', { bubbles: true }));
+
+            // Aguarda um pouco antes de enviar (1-3 segundos)
+            const sendDelay = Math.random() * 2000 + 1000; // 1-3 segundos
+            await new Promise(resolve => setTimeout(resolve, sendDelay));
+
+            // Encontra e clica no botão de enviar
+            // Tenta múltiplos seletores
+            let sendButton = document.querySelector('button[aria-label*="Enviar" i]');
+            
+            if (!sendButton) {
+                sendButton = document.querySelector('button[aria-label*="enviar" i]');
+            }
+            
+            if (!sendButton) {
+                // Busca pelo SVG de enviar (path contém M5 11h8v2H5)
+                const buttons = document.querySelectorAll('button[data-kiwi-button="icon"]');
+                for (const btn of buttons) {
+                    const svg = btn.querySelector('svg path');
+                    if (svg) {
+                        const pathD = svg.getAttribute('d') || '';
+                        if (pathD.includes('M5 11h8v2H5') || pathD.includes('M5 11')) {
+                            sendButton = btn;
+                            console.log('✅ Botão de enviar encontrado pelo SVG');
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (!sendButton) {
+                // Última tentativa: busca botão dentro do footer do chat
+                const footer = document.querySelector('footer[aria-label*="chat" i]');
+                if (footer) {
+                    const buttons = footer.querySelectorAll('button');
+                    for (const btn of buttons) {
+                        const svg = btn.querySelector('svg');
+                        if (svg) {
+                            sendButton = btn;
+                            console.log('✅ Botão de enviar encontrado no footer');
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            console.log('🔍 Botão de enviar encontrado?', !!sendButton);
+
+            if (sendButton && !sendButton.disabled) {
+                sendButton.click();
+                console.log('✅ Mensagem enviada pelo Agente IA');
+                return true;
+            } else {
+                console.warn('⚠️ Botão de enviar não encontrado ou desabilitado');
+                return false;
+            }
+        } catch (error) {
+            console.error('❌ Erro ao enviar mensagem:', error);
+            return false;
+        }
+    }
+
+
+    /**
+     * Verifica se uma conversa tem novas mensagens detectáveis (badge de não lidas)
+     */
+    async function checkIfConversationHasNewMessages(conversationId) {
+        try {
+            const conversationElement = document.querySelector(`li[data-conversation-id="${conversationId}"]`);
+            if (!conversationElement) {
+                return false;
+            }
+
+            const cardButton = conversationElement.querySelector('button._card_1z13v_1');
+            if (!cardButton) {
+                return false;
+            }
+
+            // Verifica se tem badge de mensagens não lidas
+            const cardDate = cardButton.querySelector('._card__date_1z13v_75');
+            const badge = cardDate?.querySelector('._kiwi-badge_111w6_4._kiwi-badge__number_111w6_1');
+            
+            if (badge) {
+                const unreadCount = parseInt(badge.textContent?.trim() || '0', 10);
+                if (unreadCount > 0) {
+                    console.log(`📨 Conversa ${conversationId} tem ${unreadCount} mensagens não lidas`);
+                    return true;
+                }
+            }
+
+            return false;
+        } catch (error) {
+            console.error('❌ Erro ao verificar novas mensagens:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Abre uma conversa clicando nela
+     */
+    async function openConversation(conversationId) {
+        try {
+            const conversationElement = document.querySelector(`li[data-conversation-id="${conversationId}"]`);
+            if (!conversationElement) {
+                console.warn('⚠️ Elemento da conversa não encontrado:', conversationId);
+                return false;
+            }
+
+            const button = conversationElement.querySelector('button._card_1z13v_1');
+            if (button) {
+                console.log('🖱️ Clicando na conversa para abrir:', conversationId);
+                button.click();
+                
+                // Aguarda a conversa abrir
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                return true;
+            }
+        } catch (error) {
+            console.error('❌ Erro ao abrir conversa:', error);
+        }
+        return false;
+    }
+
+    /**
+     * Processa conversa sem telefone - gera e envia mensagem
+     */
+    async function processConversationWithoutPhone(conversationId, userName, lastMessage) {
+        console.log('🤖 Agente IA: Iniciando processamento para conversa:', conversationId, userName);
+        
+        // Verifica se já processou esta conversa nesta sessão
+        if (processedConversationsWithoutPhone.has(conversationId)) {
+            console.log('ℹ️ Conversa já processada pelo Agente IA nesta sessão:', conversationId);
+            return;
+        }
+
+        // Verifica se o Agente IA já solicitou telefone anteriormente (no banco)
+        const alreadyRequested = await hasAgentIARequestedPhone(conversationId);
+        if (alreadyRequested) {
+            console.log('ℹ️ Agente IA já solicitou telefone para esta conversa anteriormente, não será solicitado novamente');
+            processedConversationsWithoutPhone.add(conversationId); // Marca como processada para não verificar novamente
+            return;
+        }
+
+        // Carrega configurações se ainda não carregou
+        if (!agentIASettings) {
+            console.log('📥 Carregando configurações do Agente IA...');
+            await loadAgentIASettings();
+        }
+
+        // Verifica se Agente IA está ativado
+        if (!agentIASettings || !agentIASettings.enabled) {
+            console.log('ℹ️ Agente IA não está ativado ou não configurado');
+            return;
+        }
+
+        console.log('✅ Agente IA está ativado e configurado');
+
+        // Verifica se a conversa está aberta (não abre, apenas verifica)
+        const currentConversationId = getCurrentConversationId();
+        if (currentConversationId !== conversationId) {
+            console.log('⚠️ Conversa não está aberta. Agente IA só processa conversas ABERTAS.', {
+                current: currentConversationId,
+                target: conversationId
+            });
+            console.log('ℹ️ A abertura automática é feita por processUnreadConversations() quando detecta novas mensagens.');
+            return;
+        }
+
+        console.log('✅ Conversa está aberta, processando com Agente IA...');
+
+        // Aguarda um pouco para garantir que a interface está pronta
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Gera mensagem usando OpenAI
+        console.log('🤖 Agente IA: Gerando mensagem para solicitar telefone...');
+        const message = await generatePhoneRequestMessage(lastMessage, userName);
+        
+        if (message) {
+            console.log('✅ Mensagem gerada:', message);
+            // Marca como processada antes de enviar
+            processedConversationsWithoutPhone.add(conversationId);
+            
+            // Envia a mensagem
+            const sent = await sendMessageToClient(message);
+            if (sent) {
+                console.log('✅ Agente IA: Mensagem enviada com sucesso para', userName);
+                // Marca que o Agente IA já solicitou telefone
+                await markAgentIAPhoneRequested(conversationId);
+            } else {
+                console.warn('⚠️ Agente IA: Falha ao enviar mensagem');
+                // Remove do set para tentar novamente depois
+                processedConversationsWithoutPhone.delete(conversationId);
+            }
+        } else {
+            console.warn('⚠️ Agente IA: Não foi possível gerar mensagem');
+        }
+    }
+
+    /**
+     * Verifica se o Agente IA já solicitou telefone para esta conversa
+     */
+    async function hasAgentIARequestedPhone(conversationId) {
+        try {
+            if (!DB_CONFIG.supabase.url || !DB_CONFIG.supabase.anonKey) {
+                return false;
+            }
+
+            const url = `${DB_CONFIG.supabase.url}/rest/v1/conversations?conversation_id=eq.${encodeURIComponent(conversationId)}&select=agent_ia_phone_requested&limit=1`;
+            const response = await fetch(url, {
+                headers: {
+                    'apikey': DB_CONFIG.supabase.anonKey,
+                    'Authorization': `Bearer ${DB_CONFIG.supabase.anonKey}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data && data.length > 0) {
+                    return data[0].agent_ia_phone_requested === true;
+                }
+            }
+        } catch (error) {
+            console.error('❌ Erro ao verificar se Agente IA já solicitou telefone:', error);
+        }
+        return false;
+    }
+
+    /**
+     * Marca que o Agente IA solicitou telefone para esta conversa
+     */
+    async function markAgentIAPhoneRequested(conversationId) {
+        try {
+            if (typeof updateConversation !== 'undefined') {
+                const updated = await updateConversation(conversationId, { agentIaPhoneRequested: true });
+                if (updated) {
+                    console.log('✅ Marcado que Agente IA já solicitou telefone para:', conversationId);
+                    return true;
+                }
+            }
+        } catch (error) {
+            console.error('❌ Erro ao marcar solicitação do Agente IA:', error);
+        }
+        return false;
+    }
+
+    /**
+     * Verifica se conversa foi salva sem telefone e processa
+     * IMPORTANTE: Esta função apenas VERIFICA, não abre conversas.
+     * A abertura automática é feita em processUnreadConversations() quando detecta novas mensagens.
+     */
+    async function checkAndProcessConversationWithoutPhone(conversationId, phoneNumber, userName, lastMessage) {
+        console.log('🔍 Verificando conversa para Agente IA:', {
+            conversationId,
+            hasPhone: !!(phoneNumber && phoneNumber.trim()),
+            userName,
+            hasLastMessage: !!lastMessage
+        });
+
+        // Verifica se a conversa está ABERTA (não abre, apenas verifica)
+        const currentOpenConversationId = getCurrentConversationId();
+        if (currentOpenConversationId !== conversationId) {
+            console.log('⚠️ Conversa não está aberta. Agente IA só processa conversas ABERTAS.', {
+                current: currentOpenConversationId,
+                target: conversationId
+            });
+            console.log('ℹ️ A abertura automática é feita por processUnreadConversations() quando detecta novas mensagens.');
+            return;
+        }
+
+        console.log('✅ Conversa está aberta, verificando se deve processar...');
+
+        // Se tem telefone, não processa
+        if (phoneNumber && phoneNumber.trim()) {
+            console.log('✅ Conversa tem telefone, não será processada pelo Agente IA');
+            return;
+        }
+
+        // Se não tem userName ou lastMessage, tenta buscar
+        if (!userName || !lastMessage) {
+            console.log('📋 Buscando dados adicionais da conversa...');
+            const conversationElement = document.querySelector(`li[data-conversation-id="${conversationId}"]`);
+            if (conversationElement) {
+                const data = extractConversationData(conversationElement);
+                if (data) {
+                    userName = userName || data.userName;
+                    lastMessage = lastMessage || data.lastMessage;
+                    console.log('✅ Dados encontrados:', {
+                        userName,
+                        lastMessage: lastMessage?.substring(0, 50)
+                    });
+                }
+            }
+        }
+
+        if (!userName || !lastMessage) {
+            console.warn('⚠️ Dados insuficientes para processar:', { userName, hasLastMessage: !!lastMessage });
+            return;
+        }
+
+        // Adiciona delay aleatório antes de processar (5-15 segundos)
+        const delay = Math.random() * 10000 + 5000; // 5-15 segundos
+        console.log(`⏱️ Processando em ${Math.round(delay/1000)}s...`);
+        setTimeout(async () => {
+            // Verifica novamente se ainda é a conversa aberta antes de processar
+            const stillOpen = getCurrentConversationId();
+            if (stillOpen === conversationId) {
+                await processConversationWithoutPhone(conversationId, userName, lastMessage);
+            } else {
+                console.log('ℹ️ Conversa foi fechada antes de processar, cancelando Agente IA');
+            }
+        }, delay);
+    }
+
+
+    // Carrega configurações do Agente IA ao iniciar
+    setTimeout(async () => {
+        const settings = await loadAgentIASettings();
+        if (settings) {
+            console.log('✅ Agente IA pronto para uso');
+        } else {
+            console.warn('⚠️ Agente IA não configurado. Configure em: Dashboard > Configurações > Agente IA');
+        }
+    }, 2000);
+    
+    // Recarrega configurações periodicamente (a cada 5 minutos)
+    setInterval(async () => {
+        await loadAgentIASettings();
+    }, 5 * 60 * 1000);
+
     // Inicia quando o DOM estiver pronto
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
@@ -2293,3 +2807,4 @@
         setTimeout(init, 1000);
     }
 })();
+

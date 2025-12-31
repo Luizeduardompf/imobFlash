@@ -479,15 +479,27 @@ async function fetchMessagesForAnalysis(conversationId) {
         if (response.ok) {
             const messagesData = await response.json();
             // Converte para formato esperado pela API
-            return messagesData.map(msg => ({
-                message_id: msg.message_id || msg.id || '',
-                conversation_id: msg.conversation_id || conversationId,
-                content: msg.content || '',
-                timestamp: msg.timestamp || new Date().toISOString(),
-                sender: msg.sender || 'client',
-                time: msg.time || null,
-                order: msg.order || null
-            }));
+            return messagesData.map(msg => {
+                // Garante que timestamp está no formato ISO string
+                let timestamp = msg.timestamp || new Date().toISOString();
+                // Se já é string, usa; se é objeto Date, converte
+                if (timestamp instanceof Date) {
+                    timestamp = timestamp.toISOString();
+                } else if (typeof timestamp === 'string') {
+                    // Garante formato ISO válido
+                    timestamp = new Date(timestamp).toISOString();
+                }
+                
+                return {
+                    message_id: String(msg.message_id || msg.id || ''),
+                    conversation_id: String(msg.conversation_id || conversationId),
+                    content: String(msg.content || ''),
+                    timestamp: timestamp,
+                    sender: msg.sender === 'agent' ? 'agent' : 'client',
+                    time: msg.time ? parseFloat(msg.time) : null,
+                    order: msg.order ? parseInt(msg.order) : null
+                };
+            });
         } else {
             throw new Error('Erro ao buscar mensagens');
         }
@@ -519,6 +531,9 @@ async function analyzeMessages(conversationId, analysisType) {
         }
         
         // Chama API de análise
+        console.log('🔗 Chamando API:', `${ANALYSIS_API_URL}/api/analysis/analyze`);
+        console.log('📦 Dados:', { conversation_id: conversationId, messages_count: messages.length, analysis_type: analysisType });
+        
         const response = await fetch(`${ANALYSIS_API_URL}/api/analysis/analyze`, {
             method: 'POST',
             headers: {
@@ -529,11 +544,34 @@ async function analyzeMessages(conversationId, analysisType) {
                 messages: messages,
                 analysis_type: analysisType
             })
+        }).catch(error => {
+            console.error('❌ Erro de rede:', error);
+            throw new Error(`Erro ao conectar com a API: ${error.message}. Verifique se o servidor está rodando em ${ANALYSIS_API_URL}`);
         });
         
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ detail: 'Erro desconhecido' }));
-            throw new Error(errorData.detail || `Erro ${response.status}`);
+            let errorMessage = `Erro ${response.status}`;
+            try {
+                const errorData = await response.json();
+                console.error('❌ Erro da API:', errorData);
+                // Pydantic retorna erros de validação em formato específico
+                if (errorData.detail) {
+                    if (Array.isArray(errorData.detail)) {
+                        // Erros de validação do Pydantic
+                        errorMessage = errorData.detail.map(err => {
+                            return `${err.loc?.join('.')}: ${err.msg}`;
+                        }).join(', ');
+                    } else {
+                        errorMessage = errorData.detail;
+                    }
+                } else if (errorData.message) {
+                    errorMessage = errorData.message;
+                }
+            } catch (e) {
+                const text = await response.text().catch(() => '');
+                console.error('❌ Erro ao processar resposta:', text);
+            }
+            throw new Error(errorMessage);
         }
         
         const result = await response.json();

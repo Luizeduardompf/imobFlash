@@ -67,6 +67,7 @@ class Conversation {
         this.leadSourceId = data.leadSourceId || detectLeadSourceId(this.url);
         this.propertyUrl = data.propertyUrl || null; // URL do anúncio extraída da primeira mensagem
         this.isLead = data.isLead !== undefined ? data.isLead : null; // NULL até que seja possível determinar
+        this.agentIaPhoneRequested = data.agentIaPhoneRequested || false; // Indica se Agente IA já solicitou telefone
     }
 
     toJSON() {
@@ -87,7 +88,8 @@ class Conversation {
             metadata: this.metadata,
             leadSourceId: this.leadSourceId,
             propertyUrl: this.propertyUrl,
-            isLead: this.isLead
+            isLead: this.isLead,
+            agentIaPhoneRequested: this.agentIaPhoneRequested
         };
     }
 }
@@ -261,7 +263,8 @@ async function saveToSupabase(data) {
             has_unread: data.hasUnread || false,
             lead_source_id: data.leadSourceId || detectLeadSourceId(data.url), // ID da origem do lead detectada automaticamente
             property_url: data.propertyUrl || null, // URL do anúncio extraída da primeira mensagem
-            is_lead: data.isLead !== undefined ? data.isLead : null // NULL até que seja possível determinar
+            is_lead: data.isLead !== undefined ? data.isLead : null, // NULL até que seja possível determinar
+            agent_ia_phone_requested: data.agentIaPhoneRequested || false // Indica se Agente IA já solicitou telefone
         };
         
         const response = await fetch(url, {
@@ -691,6 +694,12 @@ async function updateConversationInSupabase(conversationId, updates) {
             } else {
                 console.log('ℹ️ UserName vazio, não atualizando');
             }
+        }
+        
+        // Regra: agent_ia_phone_requested pode ser atualizado para true
+        if (updates.agentIaPhoneRequested !== undefined) {
+            supabaseUpdates.agent_ia_phone_requested = updates.agentIaPhoneRequested;
+            console.log('🤖 Atualizando agent_ia_phone_requested para:', updates.agentIaPhoneRequested);
         }
         
         // Regra: lastMessage só atualiza se mudou
