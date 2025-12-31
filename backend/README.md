@@ -79,10 +79,12 @@ cp .env.example .env
 ```
 
 2. Edite o arquivo `.env` e configure as variáveis:
+
+**⚠️ TEMPORÁRIO - Chaves de desenvolvimento (remover depois):**
 ```env
-OPENAI_API_KEY=sua_chave_openai_aqui
-SUPABASE_URL=sua_url_supabase_aqui
-SUPABASE_KEY=sua_chave_supabase_aqui
+OPENAI_API_KEY=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
+SUPABASE_URL=https://bhguniomuytyzrfcpbeo.supabase.co
+SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJoZ3VuaW9tdXl0eXpyZmNwYmVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwMDAxNTQsImV4cCI6MjA4MjU3NjE1NH0.cLEcnoEXy4dANZya-pr3PYIYrgwE8eDFbULl8r0-ybM
 API_HOST=0.0.0.0
 API_PORT=8000
 CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
