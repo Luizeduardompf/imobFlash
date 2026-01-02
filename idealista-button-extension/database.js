@@ -23,6 +23,33 @@ const DB_CONFIG = {
 };
 
 /**
+ * Fetch com timeout
+ * @param {string} url - URL para fazer requisição
+ * @param {Object} options - Opções do fetch
+ * @param {number} timeout - Timeout em milissegundos (padrão: 10000)
+ * @returns {Promise<Response>}
+ */
+async function fetchWithTimeout(url, options = {}, timeout = 10000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return response;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error(`Request timeout após ${timeout}ms`);
+        }
+        throw error;
+    }
+}
+
+/**
  * Detecta o ID da origem do lead baseado na URL
  * @param {string} url - URL da página
  * @returns {number} ID da origem (1 = Idealista, 2 = Outro)
@@ -68,6 +95,7 @@ class Conversation {
         this.propertyUrl = data.propertyUrl || null; // URL do anúncio extraída da primeira mensagem
         this.isLead = data.isLead !== undefined ? data.isLead : null; // NULL até que seja possível determinar
         this.agentIaPhoneRequested = data.agentIaPhoneRequested || false; // Indica se Agente IA já solicitou telefone
+        this.prefersPhoneCall = data.prefersPhoneCall || false; // Indica se cliente prefere ligação ao invés de WhatsApp
     }
 
     toJSON() {
@@ -89,7 +117,8 @@ class Conversation {
             leadSourceId: this.leadSourceId,
             propertyUrl: this.propertyUrl,
             isLead: this.isLead,
-            agentIaPhoneRequested: this.agentIaPhoneRequested
+            agentIaPhoneRequested: this.agentIaPhoneRequested,
+            prefersPhoneCall: this.prefersPhoneCall
         };
     }
 }
@@ -264,7 +293,8 @@ async function saveToSupabase(data) {
             lead_source_id: data.leadSourceId || detectLeadSourceId(data.url), // ID da origem do lead detectada automaticamente
             property_url: data.propertyUrl || null, // URL do anúncio extraída da primeira mensagem
             is_lead: data.isLead !== undefined ? data.isLead : null, // NULL até que seja possível determinar
-            agent_ia_phone_requested: data.agentIaPhoneRequested || false // Indica se Agente IA já solicitou telefone
+            agent_ia_phone_requested: data.agentIaPhoneRequested || false, // Indica se Agente IA já solicitou telefone
+            prefers_phone_call: data.prefersPhoneCall || false // Indica se cliente prefere ligação ao invés de WhatsApp
         };
         
         const response = await fetch(url, {
@@ -279,7 +309,7 @@ async function saveToSupabase(data) {
         });
 
         if (response.ok) {
-            console.log('✅ Conversa salva no Supabase:', data.conversationId);
+            // Log removido - já existe log semelhante em content.js
             return true;
         } else {
             const errorText = await response.text();
@@ -417,9 +447,25 @@ async function saveMessagesToSupabase(messages) {
         return false;
     }
 
+    // Valida URL do Supabase
+    try {
+        new URL(DB_CONFIG.supabase.url);
+    } catch (urlError) {
+        console.error('❌ URL do Supabase inválida:', DB_CONFIG.supabase.url);
+        return false;
+    }
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+        console.error('❌ Array de mensagens inválido ou vazio');
+        return false;
+    }
+
     try {
         const conversationId = messages[0]?.conversationId;
-        if (!conversationId) return false;
+        if (!conversationId) {
+            console.error('❌ Conversation ID não encontrado nas mensagens');
+            return false;
+        }
 
         let savedCount = 0;
         let skippedCount = 0;
@@ -430,22 +476,45 @@ async function saveMessagesToSupabase(messages) {
             
             // Verifica se a mensagem já existe
             const checkUrl = `${DB_CONFIG.supabase.url}/rest/v1/messages?message_id=eq.${encodeURIComponent(messageId)}&select=message_id&limit=1`;
-            const checkResponse = await fetch(checkUrl, {
-                method: 'GET',
-                headers: {
-                    'apikey': DB_CONFIG.supabase.anonKey,
-                    'Authorization': `Bearer ${DB_CONFIG.supabase.anonKey}`,
-                    'Content-Type': 'application/json'
-                }
-            });
             
-            if (checkResponse.ok) {
-                const existing = await checkResponse.json();
-                if (existing && existing.length > 0) {
-                    console.log('⏭️ Mensagem já existe no Supabase, pulando:', messageId);
-                    skippedCount++;
-                    continue;
+            let messageExists = false;
+            try {
+                const checkResponse = await fetchWithTimeout(checkUrl, {
+                    method: 'GET',
+                    headers: {
+                        'apikey': DB_CONFIG.supabase.anonKey,
+                        'Authorization': `Bearer ${DB_CONFIG.supabase.anonKey}`,
+                        'Content-Type': 'application/json'
+                    }
+                }, 5000); // 5 segundos de timeout
+                
+                if (checkResponse.ok) {
+                    const existing = await checkResponse.json();
+                    if (existing && existing.length > 0) {
+                        // Log removido para reduzir ruído
+                        skippedCount++;
+                        messageExists = true;
+                    }
+                } else if (checkResponse.status === 404) {
+                    // Mensagem não existe, pode continuar
+                    messageExists = false;
+                } else {
+                    console.warn('⚠️ Erro ao verificar se mensagem existe:', checkResponse.status, checkResponse.statusText);
+                    // Continua tentando salvar mesmo com erro na verificação
                 }
+            } catch (checkError) {
+                if (checkError.message && checkError.message.includes('Failed to fetch')) {
+                    console.warn('⚠️ Erro de rede ao verificar mensagem existente: Erro de conexão (Failed to fetch). Verifique sua conexão com a internet.');
+                } else if (checkError.message && checkError.message.includes('timeout')) {
+                    console.warn('⚠️ Erro de rede ao verificar mensagem existente: Timeout na requisição.');
+                } else {
+                    console.warn('⚠️ Erro de rede ao verificar mensagem existente:', checkError.message || checkError);
+                }
+                // Continua tentando salvar mesmo com erro na verificação
+            }
+            
+            if (messageExists) {
+                continue;
             }
             
             // Prepara dados para Supabase (snake_case)
@@ -462,7 +531,7 @@ async function saveMessagesToSupabase(messages) {
             const url = `${DB_CONFIG.supabase.url}/rest/v1/messages`;
             
             try {
-                const response = await fetch(url, {
+                const response = await fetchWithTimeout(url, {
                     method: 'POST',
                     headers: {
                         'apikey': DB_CONFIG.supabase.anonKey,
@@ -471,7 +540,7 @@ async function saveMessagesToSupabase(messages) {
                         'Prefer': 'return=representation'
                     },
                     body: JSON.stringify(supabaseData)
-                });
+                }, 10000); // 10 segundos de timeout
 
                 if (response.ok) {
                     savedCount++;
@@ -487,7 +556,7 @@ async function saveMessagesToSupabase(messages) {
                         if (response.status === 409) {
                             isDuplicate = true;
                             skippedCount++;
-                            console.log('⏭️ Mensagem já existe no Supabase, pulando:', messageId);
+                            // Log removido para reduzir ruído
                         } else {
                             // Outros erros são críticos
                             console.warn('⚠️ Erro ao salvar mensagem:', messageId, response.status);
@@ -498,7 +567,7 @@ async function saveMessagesToSupabase(messages) {
                         if (response.status === 409) {
                             isDuplicate = true;
                             skippedCount++;
-                            console.log('⏭️ Mensagem já existe no Supabase, pulando:', messageId);
+                            // Log removido para reduzir ruído
                         } else {
                             console.warn('⚠️ Erro ao salvar mensagem:', messageId, response.status);
                             console.warn('Erro texto:', errorText.substring(0, 200));
@@ -510,8 +579,26 @@ async function saveMessagesToSupabase(messages) {
                         continue;
                     }
                 }
-            } catch (error) {
-                console.warn('⚠️ Erro ao salvar mensagem:', messageId, error);
+            } catch (fetchError) {
+                // Erro de rede (Failed to fetch)
+                console.error('❌ Erro de rede ao salvar mensagem:', messageId);
+                console.error('Tipo de erro:', fetchError.name);
+                console.error('Mensagem:', fetchError.message);
+                console.error('URL tentada:', url);
+                
+                // Verifica se é erro de CORS
+                if (fetchError.message.includes('CORS') || fetchError.message.includes('cors')) {
+                    console.error('🔒 ERRO DE CORS: Verifique as configurações CORS do Supabase');
+                }
+                
+                // Verifica se é erro de rede
+                if (fetchError.message.includes('Failed to fetch') || fetchError.message.includes('NetworkError')) {
+                    console.error('🌐 ERRO DE REDE: Verifique sua conexão com a internet e a URL do Supabase');
+                    console.error('URL configurada:', DB_CONFIG.supabase.url);
+                }
+                
+                // Continua para próxima mensagem em vez de parar tudo
+                continue;
             }
         }
 
@@ -550,6 +637,16 @@ async function saveMessagesToSupabase(messages) {
         return savedCount > 0;
     } catch (error) {
         console.error('❌ Erro ao salvar mensagens no Supabase:', error);
+        console.error('Tipo de erro:', error.name);
+        console.error('Mensagem:', error.message);
+        console.error('Stack:', error.stack);
+        
+        // Informações adicionais para debug
+        if (messages && messages.length > 0) {
+            console.error('Conversa ID:', messages[0]?.conversationId);
+            console.error('Total de mensagens:', messages.length);
+        }
+        
         return false;
     }
 }
@@ -700,6 +797,12 @@ async function updateConversationInSupabase(conversationId, updates) {
         if (updates.agentIaPhoneRequested !== undefined) {
             supabaseUpdates.agent_ia_phone_requested = updates.agentIaPhoneRequested;
             console.log('🤖 Atualizando agent_ia_phone_requested para:', updates.agentIaPhoneRequested);
+        }
+
+        // Regra: prefers_phone_call pode ser atualizado
+        if (updates.prefersPhoneCall !== undefined) {
+            supabaseUpdates.prefers_phone_call = updates.prefersPhoneCall;
+            console.log('📞 Atualizando prefers_phone_call para:', updates.prefersPhoneCall);
         }
         
         // Regra: lastMessage só atualiza se mudou

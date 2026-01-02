@@ -484,6 +484,13 @@
      * Processa a conversa atual: clica no telefone e extrai o número
      */
     function processConversation() {
+        // Verifica se há uma conversa aberta antes de tentar buscar o botão
+        const conversationId = getCurrentConversationId();
+        if (!conversationId || conversationId === 'unknown') {
+            // Não há conversa aberta, não precisa buscar o botão
+            return;
+        }
+        
         const phoneButton = findPhoneButton();
         if (!phoneButton) {
             console.log('ℹ️ Botão de telefone não encontrado - isso é normal se a conversa não tiver número disponível');
@@ -565,6 +572,13 @@
      * @param {string} userName - Nome do remetente
      */
     async function handleConversationChange(userName) {
+        // Verifica se há uma conversa aberta antes de processar
+        const conversationId = getCurrentConversationId();
+        if (!conversationId || conversationId === 'unknown') {
+            // Não há conversa aberta, não precisa processar
+            return;
+        }
+        
         console.log('📨 Mensagem mudou! Remetente:', userName);
         console.log('📞 Clicando no telefone para a mensagem de:', userName);
         
@@ -798,6 +812,8 @@
     let unreadClickTimeout = null; // Timeout para clique em mensagens não lidas
     let isProcessingUnread = false; // Flag para evitar múltiplos processamentos
     let processedUnreadConversations = new Set(); // Conversas não lidas já processadas nesta sessão
+    let isAIWorking = false; // Flag para indicar que o AI está trabalhando (analisando ou escrevendo)
+    let currentAIWorkingConversationId = null; // ID da conversa que o AI está processando
     
     // Cache local para rastrear valores atuais e evitar atualizações desnecessárias
     const conversationCache = new Map(); // Map<conversationId, {phoneNumber, lastMessage, lastMessageDate}>
@@ -922,15 +938,6 @@
             // Suporta: "22:38" (hora apenas), "26 dez." (data e mês), etc.
             const lastMessageDate = parseConversationDate(rawLastMessageDate);
             
-            // Log para debug
-            console.log('📅 Extração de lastMessageDate:', {
-                conversationId,
-                raw: rawLastMessageDate,
-                formatted: lastMessageDate,
-                cardDateFound: !!cardDate,
-                dateElementFound: !!dateElement
-            });
-            
             if (!rawLastMessageDate) {
                 console.warn('⚠️ lastMessageDate vazio para conversa:', conversationId, {
                     cardDateFound: !!cardDate,
@@ -938,11 +945,7 @@
                     cardDateHTML: cardDate?.outerHTML?.substring(0, 200)
                 });
             } else if (rawLastMessageDate !== lastMessageDate) {
-                console.log('✅ Data convertida com sucesso:', {
-                    conversationId,
-                    raw: rawLastMessageDate,
-                    formatted: lastMessageDate
-                });
+                // Data convertida com sucesso (log removido para reduzir ruído)
             } else {
                 console.log('ℹ️ Data não foi convertida (já está no formato correto ou não reconhecido):', {
                     conversationId,
@@ -1013,14 +1016,6 @@
                 }
             };
             
-            // Log final para verificar se lastMessageDate está correto
-            console.log('📋 Dados da conversa extraídos:', {
-                conversationId,
-                userName,
-                lastMessageDate: conversationData.lastMessageDate,
-                lastMessage: conversationData.lastMessage.substring(0, 50)
-            });
-            
             return conversationData;
         } catch (error) {
             console.error('❌ Erro ao extrair dados da conversa:', error);
@@ -1047,7 +1042,6 @@
             if (typeof conversationExists !== 'undefined') {
                 const exists = await conversationExists(data.conversationId);
                 if (exists) {
-                    console.log('ℹ️ Conversa já existe no banco de dados:', data.conversationId, '- Não será salva novamente');
                     monitoredConversations.add(data.conversationId);
                     conversationAlreadyExists = true;
                     // NÃO retorna aqui - continua para verificar Agente IA mesmo se já existe
@@ -1095,17 +1089,35 @@
      * Monitora todas as conversas na lista
      */
     function monitorConversationsList() {
+        // Se o AI está trabalhando, ignora verificação de novas conversas
+        if (isAIWorking) {
+            console.log('⏸️ AI está trabalhando, ignorando verificação de novas conversas...');
+            return;
+        }
+        
         // Busca a lista de conversas usando o seletor específico
-        const conversationsList = document.querySelector('[data-testid="conversation-list-component"]');
+        let conversationsList = document.querySelector('[data-testid="conversation-list-component"]');
+        
+        // Fallback: busca qualquer elemento que contenha li com data-conversation-id
         if (!conversationsList) {
-            // Fallback: busca qualquer ul com li que tenha data-conversation-id
+            const items = document.querySelectorAll('li[data-conversation-id]');
+            if (items.length > 0) {
+                conversationsList = items[0]?.closest('ul') || items[0]?.closest('div') || items[0]?.parentElement;
+            }
+        }
+        
+        if (!conversationsList) {
+            // Fallback: busca diretamente os elementos li
             const conversationItems = document.querySelectorAll('li[data-conversation-id]');
-            conversationItems.forEach((item) => {
-                const conversationId = item.getAttribute('data-conversation-id');
-                if (conversationId && !monitoredConversations.has(conversationId)) {
-                    processAndSaveConversation(item);
-                }
-            });
+            if (conversationItems.length > 0) {
+                console.log('ℹ️ Usando fallback: processando', conversationItems.length, 'conversas encontradas diretamente');
+                conversationItems.forEach((item) => {
+                    const conversationId = item.getAttribute('data-conversation-id');
+                    if (conversationId && !monitoredConversations.has(conversationId)) {
+                        processAndSaveConversation(item);
+                    }
+                });
+            }
             return;
         }
 
@@ -1125,6 +1137,12 @@
      * Detecta quando novos <li> são adicionados ao <ul>
      */
     const conversationsListObserver = new MutationObserver((mutations) => {
+        // Se o AI está trabalhando, ignora mudanças na lista
+        if (isAIWorking) {
+            console.log('⏸️ AI está trabalhando, ignorando mudanças na lista de conversas...');
+            return;
+        }
+        
         mutations.forEach((mutation) => {
             mutation.addedNodes.forEach((node) => {
                 // Verifica se é um elemento <li> com data-conversation-id
@@ -1152,8 +1170,10 @@
             });
         });
         
-        // Também monitora a lista completa periodicamente
-        monitorConversationsList();
+        // Também monitora a lista completa periodicamente (se AI não estiver trabalhando)
+        if (!isAIWorking) {
+            monitorConversationsList();
+        }
     });
 
     /**
@@ -1161,7 +1181,17 @@
      * @returns {Array<HTMLElement>} Array de elementos <li> com mensagens não lidas
      */
     function findUnreadConversations() {
-        const conversationsList = document.querySelector('[data-testid="conversation-list-component"]');
+        // Tenta múltiplos seletores
+        let conversationsList = document.querySelector('[data-testid="conversation-list-component"]');
+        
+        // Fallback: busca qualquer elemento que contenha li com data-conversation-id
+        if (!conversationsList) {
+            const items = document.querySelectorAll('li[data-conversation-id]');
+            if (items.length > 0) {
+                conversationsList = items[0]?.closest('ul') || items[0]?.closest('div') || items[0]?.parentElement;
+            }
+        }
+        
         if (!conversationsList) return [];
 
         const allConversations = conversationsList.querySelectorAll('li[data-conversation-id]');
@@ -1219,6 +1249,12 @@
             return; // Já está processando uma conversa
         }
 
+        // CRITICAL: Se o AI está trabalhando, não processa novas conversas
+        if (isAIWorking) {
+            console.log('⏸️ AI está trabalhando, aguardando antes de processar próxima conversa...');
+            return;
+        }
+
         // Verifica se há um chat aberto atualmente
         const activeButton = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
         if (activeButton) {
@@ -1263,12 +1299,20 @@
             clearTimeout(unreadClickTimeout);
         }
 
-        unreadClickTimeout = setTimeout(() => {
+        unreadClickTimeout = setTimeout(async () => {
             clickUnreadConversation(nextConversation);
-            // Reseta flag após clicar (o processamento do chat será feito separadamente)
-            setTimeout(() => {
-                isProcessingUnread = false;
-            }, 1000);
+            
+            // Aguarda a conversa abrir e processar
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // processOpenChat será chamado automaticamente quando a conversa abrir
+            // e o AI processará se necessário
+            // O flag isAIWorking impedirá processar próxima conversa enquanto AI trabalha
+            
+            // Reseta flag após clicar (mas não processa próxima até AI terminar)
+            isProcessingUnread = false;
+            
+            // Não chama processUnreadConversations aqui - será chamado quando AI terminar
         }, randomMs);
     }
 
@@ -1605,7 +1649,6 @@
                 
                 const dividerDate = parseDayDividerDate(divider);
                 if (dividerDate) {
-                    console.log(`✅ Divisor de dia encontrado: ${divider.textContent?.trim()} → ${dividerDate.toLocaleDateString('pt-BR')}`);
                     return dividerDate;
                 }
             }
@@ -1619,12 +1662,23 @@
      * Extrai todas as mensagens do chat aberto
      * @returns {Object} Objeto com {messages: Array, propertyUrl: string|null, isLead: boolean} - Array de mensagens, URL do anúncio e se é lead
      */
-    function extractChatMessages() {
+    function extractChatMessages(forceRefresh = false) {
+        // Usa cache se disponível e ainda válido (a menos que forceRefresh seja true)
+        const now = Date.now();
+        if (!forceRefresh && lastExtractResult && (now - lastExtractTime) < EXTRACT_CACHE_MS) {
+            return lastExtractResult;
+        }
+        
         const messages = [];
         let propertyUrl = null;
         let isLead = null; // NULL até que seja possível determinar (true = lead, false = não-lead)
         const conversationContainer = document.querySelector('[data-testid="conversation-detail-component"]');
-        if (!conversationContainer) return { messages, propertyUrl, isLead };
+        if (!conversationContainer) {
+            const result = { messages, propertyUrl, isLead };
+            lastExtractResult = result;
+            lastExtractTime = now;
+            return result;
+        }
 
         // Obtém o ID da conversa atual - busca pelo botão ativo na lista
         let conversationId = 'unknown';
@@ -1636,11 +1690,11 @@
 
         // Busca todos os divisores de dia para referência
         const dayDividers = conversationContainer.querySelectorAll('._chat-day-divider_');
-        console.log(`📅 Encontrados ${dayDividers.length} divisores de dia`);
+        // Log removido para reduzir ruído
 
         // Busca todos os containers de mensagens
         const messageContainers = conversationContainer.querySelectorAll('[data-testid="message-container"]');
-        console.log(`📨 Encontrados ${messageContainers.length} containers de mensagens`);
+        // Log removido para reduzir ruído
         
         messageContainers.forEach((container, index) => {
             try {
@@ -1654,7 +1708,7 @@
                     // Se a primeira mensagem é do cliente, é um lead (cliente iniciou)
                     // Se a primeira mensagem é do agente, não é um lead (agente iniciou)
                     isLead = isFromOther;
-                    console.log(`🏷️ Tipo de conversa detectado: ${isLead ? 'LEAD' : 'NÃO-LEAD'} (primeira mensagem: ${sender})`);
+                    // Log removido para reduzir ruído
                 }
 
                 // Extrai o link do anúncio da primeira mensagem (seja do cliente ou do agente)
@@ -1685,7 +1739,7 @@
                             } else {
                                 propertyUrl = `https://www.idealista.pt/${href}`;
                             }
-                            console.log(`🏠 Link do anúncio extraído da primeira mensagem (${sender}): ${propertyUrl}`);
+                            // Log removido para reduzir ruído
                         }
                     }
                 }
@@ -1737,8 +1791,6 @@
                 const timestamp = messageTimestamp || new Date().toISOString();
                 if (!messageTimestamp && time) {
                     console.warn('⚠️ Usando timestamp atual como fallback para time:', time);
-                } else if (dayDividerDate && messageTimestamp) {
-                    console.log(`✅ Timestamp construído usando divisor de dia: ${dayDividerDate.toLocaleDateString('pt-BR')} + ${time} = ${messageTimestamp}`);
                 }
 
                 // Gera ID único e determinístico para a mensagem
@@ -1773,11 +1825,387 @@
             }
         });
 
-        return { messages, propertyUrl, isLead };
+        const result = { messages, propertyUrl, isLead };
+        // Atualiza cache
+        lastExtractResult = result;
+        lastExtractTime = now;
+        return result;
     }
 
     // Flag para evitar múltiplos processamentos do mesmo chat
     let currentProcessingChatId = null;
+    
+    // Map para rastrear última contagem de mensagens por conversa (detecta novas mensagens)
+    const lastMessageCount = new Map(); // Map<conversationId, count>
+    const lastProcessedMessages = new Map(); // Map<conversationId, Set<messageId>>
+    
+    // Map para rastrear timers de verificação periódica por conversa
+    const periodicCheckTimers = new Map(); // Map<conversationId, timerId>
+    
+    // Flag para evitar múltiplas verificações simultâneas
+    const checkingMessages = new Set(); // Set<conversationId>
+    
+    // Cache para evitar chamadas muito frequentes de extractChatMessages
+    let lastExtractTime = 0;
+    let lastExtractResult = null;
+    const EXTRACT_CACHE_MS = 1000; // Cache por 1 segundo
+    
+    // Observer global para detectar novas mensagens no chat aberto (com debounce)
+    let openChatCheckTimeout = null;
+    const openChatMessagesObserver = new MutationObserver(() => {
+        // Verifica se há um chat aberto
+        const activeButton = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
+        if (!activeButton) return;
+        
+        const activeLi = activeButton.closest('li[data-conversation-id]');
+        const conversationId = activeLi?.getAttribute('data-conversation-id');
+        if (!conversationId) return;
+        
+        // Debounce: cancela verificação anterior e agenda nova
+        if (openChatCheckTimeout) {
+            clearTimeout(openChatCheckTimeout);
+        }
+        
+        // Debounce: aguarda um pouco para a mensagem ser renderizada (1 segundo)
+        // Só agenda se não estiver já verificando esta conversa
+        if (!checkingMessages.has(conversationId)) {
+            openChatCheckTimeout = setTimeout(() => {
+                checkForNewMessagesInOpenChat(conversationId);
+            }, 1000);
+        }
+    });
+    
+    /**
+     * Configura observer de mensagens quando chat é aberto
+     */
+    function setupOpenChatMessagesObserver(conversationId) {
+        // Limpa timer anterior se existir
+        if (periodicCheckTimers.has(conversationId)) {
+            clearInterval(periodicCheckTimers.get(conversationId));
+        }
+        
+        // Observa mudanças no container de mensagens do chat
+        const messagesContainer = document.querySelector('[data-testid="conversation-detail-component"]');
+        if (messagesContainer) {
+            // Desconecta observer anterior se existir
+            openChatMessagesObserver.disconnect();
+            
+            // Reconecta observando o container
+            openChatMessagesObserver.observe(messagesContainer, {
+                childList: true,
+                subtree: true
+            });
+            
+            console.log('✅ Observer de mensagens configurado para conversa:', conversationId);
+            
+            // Configura verificação periódica como backup (a cada 10 segundos - reduzido para evitar chamadas excessivas)
+            const periodicTimer = setInterval(() => {
+                const currentOpenId = getCurrentConversationId();
+                if (currentOpenId === conversationId) {
+                    // Só verifica se não estiver já verificando
+                    if (!checkingMessages.has(conversationId)) {
+                        checkForNewMessagesInOpenChat(conversationId);
+                    }
+                } else {
+                    // Conversa mudou, limpa o timer
+                    clearInterval(periodicTimer);
+                    periodicCheckTimers.delete(conversationId);
+                }
+            }, 10000); // Aumentado de 3s para 10s
+            
+            periodicCheckTimers.set(conversationId, periodicTimer);
+        } else {
+            console.warn('⚠️ Container de mensagens não encontrado para observer');
+        }
+    }
+
+    /**
+     * Verifica se há novas mensagens no chat aberto
+     */
+    async function checkForNewMessagesInOpenChat(conversationId) {
+        // Evita múltiplas verificações simultâneas para a mesma conversa
+        if (checkingMessages.has(conversationId)) {
+            console.log('⏸️ Já está verificando mensagens para esta conversa:', conversationId);
+            return;
+        }
+        
+        checkingMessages.add(conversationId);
+        
+        try {
+            // Verifica se ainda é a conversa aberta
+            const currentOpenConversationId = getCurrentConversationId();
+            if (currentOpenConversationId !== conversationId) {
+                console.log('ℹ️ Conversa não está mais aberta, cancelando verificação:', {
+                    expected: conversationId,
+                    current: currentOpenConversationId
+                });
+                return;
+            }
+            
+            // Extrai mensagens atuais (força refresh para obter dados atualizados)
+            const { messages } = extractChatMessages(true);
+            
+            if (!messages || messages.length === 0) {
+                return; // Log removido para reduzir ruído
+            }
+            
+            // Obtém última contagem e mensagens processadas
+            const lastCount = lastMessageCount.get(conversationId) || 0;
+            const processedMessageIds = lastProcessedMessages.get(conversationId) || new Set();
+            
+            // Verifica se há novas mensagens
+            const currentCount = messages.length;
+            const newMessages = messages.filter(msg => !processedMessageIds.has(msg.messageId));
+            
+            if (newMessages.length > 0 || currentCount > lastCount) {
+                console.log('📨 Novas mensagens detectadas no chat aberto!', {
+                    conversationId,
+                    lastCount,
+                    currentCount,
+                    newMessagesCount: newMessages.length,
+                    newMessageIds: newMessages.map(m => m.messageId).slice(0, 3)
+                });
+                
+                // Atualiza contagem e mensagens processadas ANTES de processar
+                lastMessageCount.set(conversationId, currentCount);
+                newMessages.forEach(msg => processedMessageIds.add(msg.messageId));
+                lastProcessedMessages.set(conversationId, processedMessageIds);
+                
+                // Processa as novas mensagens (sem resetar o currentProcessingChatId)
+                await processNewMessagesInOpenChat(conversationId, messages);
+            }
+            // Log removido quando não há novas mensagens para reduzir ruído
+        } catch (error) {
+            console.error('❌ Erro ao verificar novas mensagens no chat aberto:', error);
+        } finally {
+            // Sempre remove o flag, mesmo em caso de erro
+            checkingMessages.delete(conversationId);
+        }
+    }
+
+    /**
+     * Processa novas mensagens no chat já aberto
+     */
+    async function processNewMessagesInOpenChat(conversationId, messages) {
+        console.log('🔄 Processando novas mensagens no chat aberto:', conversationId);
+        
+        // Não reseta currentProcessingChatId para permitir processamento contínuo
+        
+        // Extrai número de telefone - tenta múltiplas fontes
+        let phoneNumber = '';
+        
+        // 1. Tenta do dataset do botão WhatsApp
+        const whatsappButton = document.getElementById(WHATSAPP_BUTTON_ID);
+        phoneNumber = whatsappButton?.dataset.phoneNumber || '';
+        
+        // Se não encontrou telefone, tenta extrair do chat
+        if (!phoneNumber) {
+            const phoneButton = findPhoneButton();
+            if (phoneButton) {
+                const menuId = phoneButton.getAttribute('aria-controls');
+                if (menuId) {
+                    const extracted = extractPhoneNumber(menuId);
+                    if (extracted) {
+                        phoneNumber = extracted;
+                    }
+                }
+            }
+        }
+        
+        const userName = getCurrentUserName() || '';
+        const lastMessageContent = messages.length > 0 ? messages[messages.length - 1].content : '';
+        
+        // Salva mensagens no banco de dados
+        try {
+            if (typeof ChatMessage !== 'undefined' && typeof saveChatMessages !== 'undefined') {
+                const chatMessages = messages.map(msg => new ChatMessage(msg));
+                await saveChatMessages(chatMessages);
+                console.log('✅ Mensagens salvas no banco de dados');
+            }
+        } catch (error) {
+            console.error('❌ Erro ao salvar mensagens:', error);
+        }
+        
+        // Atualiza conversa no DB
+        if (typeof updateConversation !== 'undefined') {
+            try {
+                const totalMessages = messages.length;
+                const clientMessages = messages.filter(m => m.sender === 'client').length;
+                const agentMessages = messages.filter(m => m.sender === 'agent').length;
+                
+                const updates = {
+                    lastMessage: lastMessageContent,
+                    phoneNumber: phoneNumber || undefined
+                };
+                
+                const updated = await updateConversation(conversationId, updates);
+                if (updated) {
+                    console.log('✅ Conversa atualizada com novas mensagens:', {
+                        totalMessages,
+                        clientMessages,
+                        agentMessages
+                    });
+                    
+                    // Verifica se não tem telefone e processa com Agente IA
+                    if (!phoneNumber || !phoneNumber.trim()) {
+                        console.log('📱 Conversa ABERTA sem telefone detectada (nova mensagem)!', {
+                            conversationId: conversationId,
+                            userName: userName,
+                            lastMessage: lastMessageContent?.substring(0, 50)
+                        });
+                        
+                        // Verifica se o Agente IA já solicitou telefone
+                        const agentRequestedPhone = await hasAgentIARequestedPhone(conversationId);
+                        
+                        if (agentRequestedPhone) {
+                            // Agente IA já solicitou telefone, analisa mensagens para ver se cliente informou
+                            console.log('🔍 Agente IA já solicitou telefone. Analisando novas mensagens...');
+                            
+                            // Analisa mensagens para extrair telefone
+                            const extractedPhone = await analyzeMessagesForPhoneNumber(messages);
+                            
+                            if (extractedPhone && extractedPhone.trim().length > 0) {
+                                console.log('✅ Telefone encontrado nas mensagens! Atualizando no DB:', extractedPhone);
+                                
+                                // Analisa se cliente prefere ligação ao invés de WhatsApp
+                                const prefersPhoneCall = await analyzeMessagesForPhonePreference(messages);
+                                
+                                // Atualiza telefone e preferência no DB
+                                const updateData = { 
+                                    phoneNumber: extractedPhone,
+                                    prefersPhoneCall: prefersPhoneCall
+                                };
+                                const updated = await updateConversation(conversationId, updateData);
+                                if (updated) {
+                                    console.log('✅ Telefone e preferência atualizados com sucesso no DB:', {
+                                        phone: extractedPhone,
+                                        prefersPhoneCall: prefersPhoneCall
+                                    });
+                                    
+                                    // Envia mensagem de agradecimento informando que o agente entrará em contato
+                                    await sendThankYouMessage(conversationId, prefersPhoneCall);
+                                }
+                            } else {
+                                // Cliente respondeu mas não forneceu telefone - processa reforço
+                                console.log('📝 Cliente respondeu mas não forneceu telefone. Verificando se deve enviar resposta...');
+                                
+                                // Verifica se a última mensagem é do agente (não deve enviar se for)
+                                const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+                                if (lastMessage && lastMessage.sender === 'agent') {
+                                    console.log('⏸️ Última mensagem é do agente, não enviando nova mensagem. Aguardando resposta do cliente.');
+                                    // Não envia mensagem, mas verifica refresh e continua para próxima conversa
+                                    await checkAndRefreshAfterConversation();
+                                } else {
+                                    // Verifica se já enviou mensagem recentemente
+                                    const lastMessageTime = lastAIMessageTime.get(conversationId) || 0;
+                                    const timeSinceLastMessage = Date.now() - lastMessageTime;
+                                    const minTimeBetweenMessages = 30000; // 30 segundos
+                                    
+                                    if (timeSinceLastMessage < minTimeBetweenMessages) {
+                                        console.log(`⏱️ Muito pouco tempo desde última mensagem do AI (${Math.round(timeSinceLastMessage/1000)}s). Aguardando mais ${Math.round((minTimeBetweenMessages - timeSinceLastMessage)/1000)}s...`);
+                                        // Não envia mensagem agora, mas verifica refresh e continua para próxima conversa
+                                        await checkAndRefreshAfterConversation();
+                                    } else if (timeSinceLastMessage >= minTimeBetweenMessages) {
+                                        const lastClientMessage = messages
+                                            .filter(msg => msg.sender === 'client')
+                                            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+                                        
+                                        if (lastClientMessage && lastClientMessage.content) {
+                                            const recentMessages = messages
+                                                .slice(-3)
+                                                .map(msg => `${msg.sender === 'client' ? 'Cliente' : 'Agente'}: ${msg.content}`)
+                                                .join('\n');
+                                            
+                                            const reinforceMessage = await generateReinforcePhoneRequestMessage(
+                                                lastClientMessage.content,
+                                                userName,
+                                                recentMessages
+                                            );
+                                            
+                                            if (reinforceMessage) {
+                                                isAIWorking = true;
+                                                currentAIWorkingConversationId = conversationId;
+                                                
+                                                const delay = Math.random() * 2000 + 3000;
+                                                setTimeout(async () => {
+                                                    try {
+                                                        const stillOpen = getCurrentConversationId();
+                                                        if (stillOpen === conversationId) {
+                                                            const sent = await sendMessageToClient(reinforceMessage);
+                                                            if (sent) {
+                                                                lastAIMessageTime.set(conversationId, Date.now());
+                                                                
+                                                                // Aguarda um pouco para garantir que a mensagem foi processada
+                                                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                                                
+                                                                // Após enviar mensagem de reforço com sucesso, sempre faz refresh
+                                                                console.log('✅ Agente IA: Mensagem de reforço enviada, fazendo refresh...');
+                                                                await refreshAfterAIMessage();
+                                                            } else {
+                                                                // Se não conseguiu enviar, ainda verifica refresh e continua
+                                                                await checkAndRefreshAfterConversation();
+                                                            }
+                                                        } else {
+                                                            // Conversa foi fechada, verifica refresh e continua
+                                                            await checkAndRefreshAfterConversation();
+                                                        }
+                                                    } finally {
+                                                        isAIWorking = false;
+                                                        currentAIWorkingConversationId = null;
+                                                    }
+                                                }, delay);
+                                            } else {
+                                                // Se não conseguiu gerar mensagem, verifica refresh e continua
+                                                await checkAndRefreshAfterConversation();
+                                            }
+                                        } else {
+                                            // Não há mensagem do cliente para responder, verifica refresh e continua
+                                            await checkAndRefreshAfterConversation();
+                                        }
+                                    } else {
+                                        // Tempo entre mensagens muito curto, verifica refresh e continua
+                                        await checkAndRefreshAfterConversation();
+                                    }
+                                }
+                            }
+                        } else {
+                            // Agente IA ainda não solicitou telefone, processa normalmente
+                            console.log('🤖 Agente IA ainda não solicitou telefone. Processando...');
+                            
+                            const currentOpenConversationId = getCurrentConversationId();
+                            if (currentOpenConversationId === conversationId) {
+                                const delay = Math.random() * 2000 + 3000;
+                                
+                                // Marca que esta conversa está aguardando processamento do Agente IA
+                                conversationsWaitingForAI.add(conversationId);
+                                console.log('📝 Conversa marcada como aguardando Agente IA (processNewMessagesInOpenChat):', conversationId);
+                                
+                                setTimeout(() => {
+                                    try {
+                                        const stillOpen = getCurrentConversationId();
+                                        if (stillOpen === conversationId) {
+                                            checkAndProcessConversationWithoutPhone(
+                                                conversationId, 
+                                                phoneNumber || '', 
+                                                userName, 
+                                                lastMessageContent || ''
+                                            );
+                                        }
+                                    } finally {
+                                        // Remove da lista de conversas aguardando processamento
+                                        conversationsWaitingForAI.delete(conversationId);
+                                        console.log('✅ Conversa removida da lista de aguardando Agente IA (processNewMessagesInOpenChat):', conversationId);
+                                    }
+                                }, delay);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('❌ Erro ao atualizar conversa:', error);
+            }
+        }
+    }
 
     /**
      * Processa o chat aberto: extrai mensagens e salva
@@ -1792,13 +2220,23 @@
         
         if (!conversationId) return;
 
-        // Evita processar o mesmo chat múltiplas vezes
+        // Evita processar o mesmo chat múltiplas vezes (mas permite processar novas mensagens)
         if (currentProcessingChatId === conversationId) {
+            // Se já está processando, verifica se há novas mensagens
+            checkForNewMessagesInOpenChat(conversationId);
             return;
         }
 
         currentProcessingChatId = conversationId;
         console.log('📥 Chat aberto detectado:', conversationId);
+        
+        // Inicializa contagem de mensagens
+        const { messages } = extractChatMessages();
+        if (messages && messages.length > 0) {
+            lastMessageCount.set(conversationId, messages.length);
+            const messageIds = new Set(messages.map(m => m.messageId));
+            lastProcessedMessages.set(conversationId, messageIds);
+        }
 
         // Aguarda 15 segundos após abrir o chat
         setTimeout(async () => {
@@ -1906,9 +2344,7 @@
                 console.log('🏷️ Tipo de conversa: Ainda não determinado (NULL)');
             }
             
-            if (propertyUrl) {
-                console.log(`🏠 Link do anúncio extraído: ${propertyUrl}`);
-            }
+            // Log removido para reduzir ruído
 
             // Atualiza a conversa com o phoneNumber e detalhes do chat
             if (typeof updateConversation !== 'undefined') {
@@ -2048,34 +2484,179 @@
                         // Verifica se não tem telefone e processa com Agente IA
                         // IMPORTANTE: Só processa se a conversa estiver ABERTA (já está aberta aqui)
                         if (!phoneNumber || !phoneNumber.trim()) {
-                            console.log('📱 Conversa ABERTA sem telefone detectada! Processando com Agente IA...', {
+                            console.log('📱 Conversa ABERTA sem telefone detectada!', {
                                 conversationId: conversationId,
                                 userName: getCurrentUserName(),
                                 lastMessage: lastMessageContent?.substring(0, 50)
                             });
                             
-                            // Verifica se é a conversa atual aberta
-                            const currentOpenConversationId = getCurrentConversationId();
-                            if (currentOpenConversationId === conversationId) {
-                                // Aguarda um pouco antes de processar (3-5 segundos)
-                                const delay = Math.random() * 2000 + 3000;
-                                console.log(`⏱️ Aguardando ${Math.round(delay/1000)}s antes de processar com Agente IA...`);
-                                setTimeout(() => {
-                                    // Verifica novamente se ainda é a conversa aberta antes de processar
-                                    const stillOpen = getCurrentConversationId();
-                                    if (stillOpen === conversationId) {
-                                        checkAndProcessConversationWithoutPhone(
-                                            conversationId, 
-                                            phoneNumber || '', 
-                                            getCurrentUserName() || '', 
-                                            lastMessageContent || ''
-                                        );
-                                    } else {
-                                        console.log('ℹ️ Conversa foi fechada antes de processar, cancelando Agente IA');
+                            // Verifica se o Agente IA já solicitou telefone
+                            const agentRequestedPhone = await hasAgentIARequestedPhone(conversationId);
+                            
+                            // Verifica se a última mensagem é do agente (não deve enviar se for)
+                            const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+                            const isLastMessageFromAgent = lastMessage && lastMessage.sender === 'agent';
+                            
+                            if (agentRequestedPhone) {
+                                // Agente IA já solicitou telefone, analisa mensagens para ver se cliente informou
+                                console.log('🔍 Agente IA já solicitou telefone. Analisando mensagens para verificar se cliente informou...');
+                                
+                                // Analisa mensagens para extrair telefone
+                                const extractedPhone = await analyzeMessagesForPhoneNumber(messages);
+                                
+                                if (extractedPhone && extractedPhone.trim().length > 0) {
+                                    console.log('✅ Telefone encontrado nas mensagens! Atualizando no DB:', extractedPhone);
+                                    
+                                    // Analisa se cliente prefere ligação ao invés de WhatsApp
+                                    const prefersPhoneCall = await analyzeMessagesForPhonePreference(messages);
+                                    
+                                    // Atualiza telefone e preferência no DB
+                                    if (typeof updateConversation !== 'undefined') {
+                                        const updateData = { 
+                                            phoneNumber: extractedPhone,
+                                            prefersPhoneCall: prefersPhoneCall
+                                        };
+                                        const updated = await updateConversation(conversationId, updateData);
+                                        if (updated) {
+                                            console.log('✅ Telefone e preferência atualizados com sucesso no DB:', {
+                                                phone: extractedPhone,
+                                                prefersPhoneCall: prefersPhoneCall
+                                            });
+                                            
+                                            // Envia mensagem de agradecimento informando que o agente entrará em contato
+                                            await sendThankYouMessage(conversationId, prefersPhoneCall);
+                                        } else {
+                                            console.warn('⚠️ Falha ao atualizar telefone e preferência no DB');
+                                        }
                                     }
-                                }, delay);
+                                } else {
+                                    // Cliente respondeu mas não forneceu telefone
+                                    // AI deve responder e reforçar solicitação de telefone
+                                    console.log('📝 Cliente respondeu mas não forneceu telefone. Verificando se deve enviar resposta...');
+                                    
+                                    // Verifica se a última mensagem é do agente (não deve enviar se for)
+                                    const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+                                    if (lastMessage && lastMessage.sender === 'agent') {
+                                        console.log('⏸️ Última mensagem é do agente, não enviando resposta reforçando telefone. Aguardando resposta do cliente.');
+                                        // Não retorna aqui - apenas não envia mensagem, mas o processamento continua
+                                    } else {
+                                        // Verifica se já enviou mensagem recentemente (evita spam - mínimo 30 segundos entre mensagens)
+                                        const lastMessageTime = lastAIMessageTime.get(conversationId) || 0;
+                                        const timeSinceLastMessage = Date.now() - lastMessageTime;
+                                        const minTimeBetweenMessages = 30000; // 30 segundos
+                                        
+                                        if (timeSinceLastMessage < minTimeBetweenMessages) {
+                                            console.log(`⏱️ Muito pouco tempo desde última mensagem do AI (${Math.round(timeSinceLastMessage/1000)}s). Aguardando mais ${Math.round((minTimeBetweenMessages - timeSinceLastMessage)/1000)}s...`);
+                                            // Não retorna aqui - apenas não envia mensagem agora
+                                        } else {
+                                            // Pega a última mensagem do cliente
+                                            const lastClientMessage = messages
+                                                .filter(msg => msg.sender === 'client')
+                                                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+                                            
+                                            if (lastClientMessage && lastClientMessage.content) {
+                                                // Prepara contexto da conversa (últimas 3 mensagens)
+                                                const recentMessages = messages
+                                                    .slice(-3)
+                                                    .map(msg => `${msg.sender === 'client' ? 'Cliente' : 'Agente'}: ${msg.content}`)
+                                                    .join('\n');
+                                                
+                                                // Gera resposta que reforça solicitação de telefone
+                                                const userName = getCurrentUserName() || 'Cliente';
+                                                const reinforceMessage = await generateReinforcePhoneRequestMessage(
+                                                    lastClientMessage.content,
+                                                    userName,
+                                                    recentMessages
+                                                );
+                                                
+                                                if (reinforceMessage) {
+                                                    // Verifica se ainda é a conversa aberta
+                                                    const currentOpenConversationId = getCurrentConversationId();
+                                                    if (currentOpenConversationId === conversationId) {
+                                                        // Aguarda um pouco antes de enviar (3-5 segundos)
+                                                        const delay = Math.random() * 2000 + 3000;
+                                                        console.log(`⏱️ Aguardando ${Math.round(delay/1000)}s antes de enviar resposta reforçando telefone...`);
+                                                        setTimeout(async () => {
+                                                            // Verifica novamente se ainda é a conversa aberta
+                                                            const stillOpen = getCurrentConversationId();
+                                                            if (stillOpen === conversationId) {
+                                                                const sent = await sendMessageToClient(reinforceMessage);
+                                                                if (sent) {
+                                                                    // Marca tempo da última mensagem do AI
+                                                                    lastAIMessageTime.set(conversationId, Date.now());
+                                                                    console.log('✅ Resposta reforçando telefone enviada com sucesso');
+                                                                    
+                                                                    // Aguarda um pouco para garantir que a mensagem foi processada
+                                                                    await new Promise(resolve => setTimeout(resolve, 2000));
+                                                                    
+                                                                    // Após enviar mensagem de reforço com sucesso, sempre faz refresh
+                                                                    console.log('✅ Agente IA: Mensagem de reforço enviada, fazendo refresh...');
+                                                                    await refreshAfterAIMessage();
+                                                                } else {
+                                                                    console.warn('⚠️ Falha ao enviar resposta reforçando telefone');
+                                                                }
+                                                            } else {
+                                                                console.log('ℹ️ Conversa foi fechada antes de enviar resposta, cancelando');
+                                                            }
+                                                        }, delay);
+                                                    } else {
+                                                        console.log('ℹ️ Conversa não está mais aberta, não enviando resposta');
+                                                    }
+                                                } else {
+                                                    console.warn('⚠️ Não foi possível gerar resposta reforçando telefone');
+                                                }
+                                            } else {
+                                                console.log('ℹ️ Nenhuma mensagem do cliente encontrada para responder');
+                                            }
+                                        }
+                                    }
+                                }
                             } else {
-                                console.log('ℹ️ Conversa não está mais aberta, não processando Agente IA');
+                                // Agente IA ainda não solicitou telefone, processa normalmente
+                                console.log('🤖 Agente IA ainda não solicitou telefone. Processando...');
+                                
+                                // Verifica se a última mensagem é do agente (não deve enviar se for)
+                                const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+                                if (lastMessage && lastMessage.sender === 'agent') {
+                                    console.log('⏸️ Última mensagem é do agente, não processando com AI. Aguardando resposta do cliente.');
+                                    // Não retorna aqui - mensagens já foram salvas no DB acima
+                                } else {
+                                    // Verifica se é a conversa atual aberta
+                                    const currentOpenConversationId = getCurrentConversationId();
+                                    if (currentOpenConversationId === conversationId) {
+                                        // Aguarda um pouco antes de processar (3-5 segundos)
+                                        const delay = Math.random() * 2000 + 3000;
+                                        console.log(`⏱️ Aguardando ${Math.round(delay/1000)}s antes de processar com Agente IA...`);
+                                        
+                                        // Marca que esta conversa está aguardando processamento do Agente IA
+                                        conversationsWaitingForAI.add(conversationId);
+                                        console.log('📝 Conversa marcada como aguardando Agente IA:', conversationId);
+                                        
+                                        setTimeout(() => {
+                                            try {
+                                                // Verifica novamente se ainda é a conversa aberta antes de processar
+                                                const stillOpen = getCurrentConversationId();
+                                                if (stillOpen === conversationId) {
+                                                    // processConversationWithoutPhone já gerencia o flag isAIWorking
+                                                    checkAndProcessConversationWithoutPhone(
+                                                        conversationId, 
+                                                        phoneNumber || '', 
+                                                        getCurrentUserName() || '', 
+                                                        lastMessageContent || ''
+                                                    );
+                                                } else {
+                                                    console.log('ℹ️ Conversa foi fechada antes de processar, cancelando Agente IA');
+                                                }
+                                            } finally {
+                                                // Remove da lista de conversas aguardando processamento
+                                                conversationsWaitingForAI.delete(conversationId);
+                                                console.log('✅ Conversa removida da lista de aguardando Agente IA:', conversationId);
+                                            }
+                                        }, delay);
+                                    } else {
+                                        console.log('ℹ️ Conversa não está mais aberta, não processando Agente IA');
+                                    }
+                                }
                             }
                         }
                         
@@ -2120,37 +2701,175 @@
             // Reseta flag
             currentProcessingChatId = null;
 
-            // Aguarda um pouco e passa para próxima mensagem não lida
-            setTimeout(() => {
-                // Verifica se ainda há conversas não lidas
-                const unread = findUnreadConversations();
-                if (unread.length > 0) {
-                    console.log('➡️ Passando para próxima conversa não lida...');
-                    processUnreadConversations();
-                } else {
-                    console.log('✅ Todas as conversas não lidas foram processadas');
-                }
-            }, 3000);
+            // Se a conversa tem telefone, não precisa processar com AI
+            if (phoneNumber && phoneNumber.trim()) {
+                console.log('✅ Conversa tem telefone, não precisa processar com AI. Verificando refresh e continuando para próxima conversa...');
+                
+                // Verifica se deve fazer refresh (mesmo quando não precisa do AI)
+                checkAndRefreshAfterConversation().then(() => {
+                    // Após verificar refresh, continua para próxima conversa
+                    setTimeout(() => {
+                        const unread = findUnreadConversations();
+                        if (unread.length > 0) {
+                            console.log('➡️ Passando para próxima conversa não lida...');
+                            processUnreadConversations();
+                        } else {
+                            console.log('✅ Todas as conversas não lidas foram processadas');
+                        }
+                    }, 2000);
+                });
+            } else {
+                // Conversa sem telefone - o AI será chamado dentro do setTimeout acima (linha 2598)
+                // O refresh será chamado pelo AI quando terminar de enviar mensagem
+                console.log('⏳ Aguardando Agente IA processar conversa sem telefone...');
+            }
 
         }, 15000); // 15 segundos
     }
 
     /**
-     * Configura reload aleatório entre 3-10 minutos
+     * Carrega configurações gerais do Supabase
      */
-    function setupRandomReload() {
+    async function loadGeneralSettings() {
+        try {
+            if (!DB_CONFIG.supabase.url || !DB_CONFIG.supabase.anonKey) {
+                console.warn('⚠️ Supabase não configurado para Configurações Gerais');
+                return null;
+            }
+
+            console.log('📥 Buscando configurações gerais...');
+            const url = `${DB_CONFIG.supabase.url}/rest/v1/general_settings?select=*&limit=1`;
+            const response = await fetch(url, {
+                headers: {
+                    'apikey': DB_CONFIG.supabase.anonKey,
+                    'Authorization': `Bearer ${DB_CONFIG.supabase.anonKey}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data && data.length > 0) {
+                    generalSettings = data[0];
+                    console.log('✅ Configurações gerais carregadas:', generalSettings);
+                    return generalSettings;
+                } else {
+                    console.log('ℹ️ Nenhuma configuração geral encontrada, usando padrões');
+                    // Usa valores padrão
+                    generalSettings = {
+                        auto_reload_enabled: true,
+                        auto_reload_min_minutes: 3,
+                        auto_reload_max_minutes: 10,
+                        refresh_after_conversation: false
+                    };
+                    return generalSettings;
+                }
+            } else {
+                const errorText = await response.text();
+                console.error('❌ Erro ao buscar configurações gerais:', response.status, errorText);
+            }
+        } catch (error) {
+            console.error('❌ Erro ao carregar configurações gerais:', error);
+        }
+        
+        // Fallback: usa valores padrão
+        generalSettings = {
+            auto_reload_enabled: true,
+            auto_reload_min_minutes: 3,
+            auto_reload_max_minutes: 10,
+            refresh_after_conversation: false
+        };
+        return generalSettings;
+    }
+
+    /**
+     * Faz refresh imediatamente após agente IA enviar mensagem (sempre, independente de configuração)
+     */
+    async function refreshAfterAIMessage() {
+        console.log('🔄 Agente IA enviou mensagem, fazendo refresh para fechar chat...');
+        
+        // Aguarda um pouco antes de recarregar (2 segundos) para garantir que a mensagem foi processada
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Recarrega a página
+        window.location.reload();
+    }
+
+    /**
+     * Verifica se deve fazer refresh após processar conversa
+     */
+    async function checkAndRefreshAfterConversation() {
+        // Carrega configurações se ainda não carregou
+        if (!generalSettings) {
+            await loadGeneralSettings();
+        }
+
+        // Verifica se há alguma conversa aguardando processamento do Agente IA
+        if (conversationsWaitingForAI.size > 0) {
+            console.log('⏸️ Refresh bloqueado: Agente IA está aguardando processar conversa(s):', Array.from(conversationsWaitingForAI));
+            return;
+        }
+
+        // Verifica se o Agente IA está trabalhando
+        if (isAIWorking) {
+            console.log('⏸️ Refresh bloqueado: Agente IA está trabalhando');
+            return;
+        }
+
+        // Verifica se refresh após conversa está ativado
+        if (generalSettings && generalSettings.refresh_after_conversation) {
+            console.log('🔄 Refresh após conversa está ativado. Recarregando página...');
+            
+            // Aguarda um pouco antes de recarregar (2 segundos)
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Recarrega a página
+            window.location.reload();
+            return;
+        }
+
+        // Se não está ativado, continua normalmente para próxima conversa
+        setTimeout(() => {
+            // Verifica se ainda há conversas não lidas
+            const unread = findUnreadConversations();
+            if (unread.length > 0) {
+                console.log('➡️ Passando para próxima conversa não lida...');
+                processUnreadConversations();
+            } else {
+                console.log('✅ Todas as conversas não lidas foram processadas');
+            }
+        }, 3000);
+    }
+
+    /**
+     * Configura reload aleatório baseado nas configurações do Supabase
+     */
+    async function setupRandomReload() {
+        // Carrega configurações se ainda não carregou
+        if (!generalSettings) {
+            await loadGeneralSettings();
+        }
+
+        // Verifica se reload automático está ativado
+        if (!generalSettings || !generalSettings.auto_reload_enabled) {
+            console.log('ℹ️ Reload automático está desativado nas configurações');
+            return;
+        }
+
         // Limpa timeout anterior se existir
         if (reloadTimeout) {
             clearTimeout(reloadTimeout);
         }
 
-        // Gera tempo aleatório entre 3 e 10 minutos (em milissegundos)
-        const minMinutes = 3;
-        const maxMinutes = 10;
+        // Usa valores das configurações ou padrões
+        const minMinutes = generalSettings?.auto_reload_min_minutes || 3;
+        const maxMinutes = generalSettings?.auto_reload_max_minutes || 10;
+
+        // Gera tempo aleatório entre min e max minutos (em milissegundos)
         const randomMinutes = Math.floor(Math.random() * (maxMinutes - minMinutes + 1)) + minMinutes;
         const randomMs = randomMinutes * 60 * 1000;
 
-        console.log(`🔄 Reload agendado em ${randomMinutes} minutos`);
+        console.log(`🔄 Reload agendado em ${randomMinutes} minutos (intervalo: ${minMinutes}-${maxMinutes} minutos)`);
 
         reloadTimeout = setTimeout(() => {
             console.log('🔄 Recarregando página...');
@@ -2162,11 +2881,8 @@
      * Verifica periodicamente novas mensagens (sem atualizar phoneNumber desnecessariamente)
      */
     function setupPeriodicChecks() {
-        // Verifica novas conversas a cada 5 segundos
-        setInterval(() => {
-            console.log('🔍 Verificando novas conversas...');
-            monitorConversationsList();
-        }, 5000);
+        // REMOVIDO: Verificação periódica de novas conversas (o observer já cobre isso)
+        // O observer (conversationsListObserver) detecta automaticamente novas conversas
         
         // REMOVIDO: Atualização periódica de phoneNumber (só atualiza quando há mudança real)
         // O phoneNumber será atualizado apenas quando:
@@ -2202,6 +2918,19 @@
                 subtree: true
             });
         }
+        
+        // Observer de mensagens já está configurado globalmente acima
+        // Configura observer inicialmente se chat já estiver aberto
+        setTimeout(() => {
+            const activeButton = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
+            if (activeButton) {
+                const activeLi = activeButton.closest('li[data-conversation-id]');
+                const conversationId = activeLi?.getAttribute('data-conversation-id');
+                if (conversationId) {
+                    setupOpenChatMessagesObserver(conversationId);
+                }
+            }
+        }, 2000);
 
         // Observa mudanças no body para detectar menus adicionados
         menuObserver.observe(document.body, {
@@ -2209,52 +2938,120 @@
             subtree: true
         });
 
-        // Monitora lista de conversas usando o seletor específico
-        const conversationsList = document.querySelector('[data-testid="conversation-list-component"]');
-        
-        if (conversationsList) {
-            console.log('✅ Lista de conversas encontrada, iniciando monitoramento...');
+        // Função para encontrar lista de conversas com múltiplos seletores
+        function findConversationsList() {
+            // Tenta múltiplos seletores
+            const selectors = [
+                '[data-testid="conversation-list-component"]',
+                'ul[data-testid="conversation-list-component"]',
+                'div[data-testid="conversation-list-component"]',
+                'section[data-testid="conversation-list-component"]',
+                // Fallback: busca qualquer elemento que contenha li com data-conversation-id
+                (() => {
+                    const items = document.querySelectorAll('li[data-conversation-id]');
+                    if (items.length > 0) {
+                        // Retorna o parent comum
+                        return items[0]?.closest('ul') || items[0]?.closest('div') || items[0]?.parentElement;
+                    }
+                    return null;
+                })()
+            ];
             
-            // Observa mudanças na lista (adicionar/remover nós)
-            conversationsListObserver.observe(conversationsList, {
-                childList: true,      // Detecta quando filhos são adicionados/removidos
-                subtree: true,        // Monitora toda a árvore (incluindo divs dentro do ul)
-                attributes: false,    // Não monitora mudanças de atributos
-                characterData: false  // Não monitora mudanças de texto
-            });
-            
-            // Processa conversas existentes após um delay
-            setTimeout(() => {
-                console.log('🔍 Processando conversas existentes...');
-                monitorConversationsList();
-            }, 2000);
-            
-            // Também monitora periodicamente (a cada 5 segundos) como backup
-            setInterval(() => {
-                monitorConversationsList();
-            }, 5000);
-        } else {
-            console.warn('⚠️ Lista de conversas não encontrada, tentando novamente...');
-            // Tenta novamente após 3 segundos
-            setTimeout(() => {
-                const retryList = document.querySelector('[data-testid="conversation-list-component"]');
-                if (retryList) {
-                    console.log('✅ Lista encontrada na segunda tentativa');
-                    conversationsListObserver.observe(retryList, {
-                        childList: true,
-                        subtree: true,
-                        attributes: false,
-                        characterData: false
-                    });
-                    monitorConversationsList();
-                } else {
-                    console.error('❌ Lista de conversas não encontrada após tentativas');
+            for (const selector of selectors) {
+                let element = null;
+                if (typeof selector === 'string') {
+                    element = document.querySelector(selector);
+                } else if (typeof selector === 'function') {
+                    element = selector();
                 }
-            }, 3000);
+                
+                if (element) {
+                    console.log('✅ Lista de conversas encontrada com seletor:', typeof selector === 'string' ? selector : 'fallback');
+                    return element;
+                }
+            }
+            
+            return null;
         }
         
-        // Configura reload aleatório
-        setupRandomReload();
+        // Função para configurar monitoramento da lista
+        function setupConversationsListMonitoring() {
+            const conversationsList = findConversationsList();
+            
+            if (conversationsList) {
+                console.log('✅ Lista de conversas encontrada, iniciando monitoramento...');
+                
+                // Observa mudanças na lista (adicionar/remover nós)
+                conversationsListObserver.observe(conversationsList, {
+                    childList: true,      // Detecta quando filhos são adicionados/removidos
+                    subtree: true,        // Monitora toda a árvore (incluindo divs dentro do ul)
+                    attributes: false,    // Não monitora mudanças de atributos
+                    characterData: false  // Não monitora mudanças de texto
+                });
+                
+                // Processa conversas existentes após um delay (apenas uma vez na inicialização)
+                setTimeout(() => {
+                    if (!isAIWorking) {
+                        console.log('🔍 Processando conversas existentes...');
+                        monitorConversationsList();
+                    } else {
+                        console.log('⏸️ AI está trabalhando, ignorando processamento de conversas existentes...');
+                    }
+                }, 2000);
+                
+                // REMOVIDO: Monitoramento periódico (o observer já cobre mudanças na lista)
+                
+                return true;
+            }
+            
+            return false;
+        }
+        
+        // Tenta configurar imediatamente
+        if (!setupConversationsListMonitoring()) {
+            console.warn('⚠️ Lista de conversas não encontrada, tentando novamente...');
+            
+            // Tenta múltiplas vezes com intervalos crescentes
+            let attempts = 0;
+            const maxAttempts = 10;
+            const retryInterval = 2000; // 2 segundos
+            
+            const retrySetup = setInterval(() => {
+                attempts++;
+                console.log(`🔄 Tentativa ${attempts}/${maxAttempts} de encontrar lista de conversas...`);
+                
+                if (setupConversationsListMonitoring()) {
+                    clearInterval(retrySetup);
+                    console.log('✅ Lista de conversas encontrada e monitoramento configurado!');
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(retrySetup);
+                    console.error('❌ Lista de conversas não encontrada após', maxAttempts, 'tentativas');
+                    console.log('ℹ️ Continuando com fallback: monitoramento direto de elementos li[data-conversation-id]');
+                    
+                    // Fallback: monitora diretamente os elementos li
+                    const fallbackObserver = new MutationObserver(() => {
+                        if (!isAIWorking) {
+                            monitorConversationsList();
+                        } else {
+                            console.log('⏸️ AI está trabalhando, ignorando fallback observer...');
+                        }
+                    });
+                    
+                    // Observa o body para detectar quando elementos são adicionados
+                    fallbackObserver.observe(document.body, {
+                        childList: true,
+                        subtree: true
+                    });
+                    
+                    // REMOVIDO: Processamento periódico (o fallback observer já cobre mudanças)
+                }
+            }, retryInterval);
+        }
+        
+        // Configura reload aleatório (async)
+        setupRandomReload().catch(err => {
+            console.error('❌ Erro ao configurar reload:', err);
+        });
         
         // Configura listeners para cliques
         setupMessageClickListeners();
@@ -2290,6 +3087,24 @@
                     
                     if (chatSection && conversationDetail) {
                         console.log('💬 Nova conversa aberta:', conversationId);
+                        
+                        // Configura observer de mensagens para esta conversa
+                        setupOpenChatMessagesObserver(conversationId);
+                        
+                        // Inicializa contagem de mensagens para esta conversa
+                        setTimeout(() => {
+                            const { messages } = extractChatMessages();
+                            if (messages && messages.length > 0) {
+                                lastMessageCount.set(conversationId, messages.length);
+                                const messageIds = new Set(messages.map(m => m.messageId));
+                                lastProcessedMessages.set(conversationId, messageIds);
+                                console.log('✅ Contagem inicial de mensagens configurada:', {
+                                    conversationId,
+                                    count: messages.length
+                                });
+                            }
+                        }, 1000);
+                        
                         // Chat foi aberto, processa após 15 segundos
                         processOpenChat();
                     }
@@ -2297,8 +3112,18 @@
             } else if (lastActiveConversationId && !chatSection) {
                 // Chat foi fechado (voltou para a lista)
                 console.log('🔙 Chat fechado, voltou para a lista');
+                
+                // Limpa timer de verificação periódica da conversa fechada
+                if (periodicCheckTimers.has(lastActiveConversationId)) {
+                    clearInterval(periodicCheckTimers.get(lastActiveConversationId));
+                    periodicCheckTimers.delete(lastActiveConversationId);
+                }
+                
                 lastActiveConversationId = null;
                 currentProcessingChatId = null;
+                
+                // Desconecta observer de mensagens
+                openChatMessagesObserver.disconnect();
                 
                 // Aguarda um pouco e processa próxima conversa não lida
                 setTimeout(() => {
@@ -2308,9 +3133,27 @@
         });
 
         // Observa mudanças na lista de conversas para detectar cliques
-        const conversationsListForChatObserver = document.querySelector('[data-testid="conversation-list-component"]');
+        let conversationsListForChatObserver = document.querySelector('[data-testid="conversation-list-component"]');
+        
+        // Fallback: busca qualquer elemento que contenha li com data-conversation-id
+        if (!conversationsListForChatObserver) {
+            const items = document.querySelectorAll('li[data-conversation-id]');
+            if (items.length > 0) {
+                conversationsListForChatObserver = items[0]?.closest('ul') || items[0]?.closest('div') || items[0]?.parentElement;
+            }
+        }
+        
         if (conversationsListForChatObserver) {
             chatObserver.observe(conversationsListForChatObserver, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['class']
+            });
+        } else {
+            // Fallback: observa o body para detectar mudanças
+            console.log('ℹ️ Lista de conversas não encontrada para chatObserver, usando fallback (body)');
+            chatObserver.observe(document.body, {
                 childList: true,
                 subtree: true,
                 attributes: true,
@@ -2326,6 +3169,22 @@
                 const conversationId = activeLi?.getAttribute('data-conversation-id');
                 if (conversationId) {
                     lastActiveConversationId = conversationId;
+                    
+                    // Configura observer de mensagens
+                    setupOpenChatMessagesObserver(conversationId);
+                    
+                    // Inicializa contagem de mensagens
+                    const { messages } = extractChatMessages();
+                    if (messages && messages.length > 0) {
+                        lastMessageCount.set(conversationId, messages.length);
+                        const messageIds = new Set(messages.map(m => m.messageId));
+                        lastProcessedMessages.set(conversationId, messageIds);
+                        console.log('✅ Contagem inicial de mensagens configurada (inicialização):', {
+                            conversationId,
+                            count: messages.length
+                        });
+                    }
+                    
                     processOpenChat();
                 }
             }
@@ -2338,6 +3197,15 @@
 
     let agentIASettings = null;
     let processedConversationsWithoutPhone = new Set();
+    
+    // Map para rastrear última vez que AI enviou mensagem por conversa (evita spam)
+    const lastAIMessageTime = new Map();
+    
+    // Set para rastrear conversas que estão aguardando processamento do Agente IA
+    const conversationsWaitingForAI = new Set(); // Set<conversationId>
+    
+    // Configurações gerais (reload automático)
+    let generalSettings = null;
 
     /**
      * Busca configurações do Agente IA do Supabase
@@ -2384,6 +3252,394 @@
     }
 
     /**
+     * Envia mensagem de agradecimento quando telefone é obtido
+     * NOTA: Esta função sempre envia a mensagem quando chamada, pois é importante agradecer quando o telefone é encontrado
+     */
+    async function sendThankYouMessage(conversationId, prefersPhoneCall) {
+        try {
+            // Verifica se ainda é a conversa aberta
+            const currentOpenConversationId = getCurrentConversationId();
+            if (currentOpenConversationId !== conversationId) {
+                console.log('ℹ️ Conversa não está mais aberta, não enviando mensagem de agradecimento');
+                return false;
+            }
+
+            // NOTA: Não verifica tempo mínimo entre mensagens aqui, pois a mensagem de agradecimento
+            // é importante e deve ser enviada assim que o telefone for encontrado
+
+            // Marca que o AI está trabalhando
+            isAIWorking = true;
+            currentAIWorkingConversationId = conversationId;
+            console.log('🔒 AI marcado como trabalhando (agradecimento) para conversa:', conversationId);
+
+            try {
+                // Gera mensagem de agradecimento
+                const thankYouMessage = prefersPhoneCall 
+                    ? "Muito obrigado pelo seu contato! Muito em breve nosso agente entrará em contato por telefone para passar todas as informações sobre a propriedade."
+                    : "Muito obrigado pelo seu contato! Muito em breve nosso agente entrará em contato via WhatsApp para passar todas as informações sobre a propriedade.";
+
+                // Aguarda um pouco antes de enviar (3-5 segundos)
+                const delay = Math.random() * 2000 + 3000;
+                console.log(`⏱️ Aguardando ${Math.round(delay/1000)}s antes de enviar mensagem de agradecimento...`);
+                
+                await new Promise(resolve => setTimeout(resolve, delay));
+
+                // Verifica novamente se ainda é a conversa aberta
+                const stillOpen = getCurrentConversationId();
+                if (stillOpen === conversationId) {
+                    const sent = await sendMessageToClient(thankYouMessage);
+                    if (sent) {
+                        // Marca tempo da última mensagem do AI
+                        lastAIMessageTime.set(conversationId, Date.now());
+                        
+                        // Aguarda um pouco para garantir que a mensagem foi processada
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        
+                        // Após enviar mensagem de agradecimento com sucesso, sempre faz refresh
+                        console.log('✅ Agente IA: Mensagem de agradecimento enviada, fazendo refresh...');
+                        await refreshAfterAIMessage();
+                        console.log('✅ Mensagem de agradecimento enviada com sucesso');
+                        return true;
+                    } else {
+                        console.warn('⚠️ Falha ao enviar mensagem de agradecimento');
+                        return false;
+                    }
+                } else {
+                    console.log('ℹ️ Conversa foi fechada antes de enviar agradecimento, cancelando');
+                    return false;
+                }
+            } finally {
+                // Sempre libera o flag quando termina
+                isAIWorking = false;
+                currentAIWorkingConversationId = null;
+                console.log('🔓 AI liberado (agradecimento), pode processar próxima conversa');
+                
+                // NOTA: checkAndRefreshAfterConversation() é chamado APENAS após enviar mensagem de agradecimento com sucesso
+                // Se chegou aqui sem enviar mensagem, não faz refresh
+                // (o refresh já foi chamado acima se a mensagem foi enviada com sucesso)
+            }
+        } catch (error) {
+            console.error('❌ Erro ao enviar mensagem de agradecimento:', error);
+            isAIWorking = false;
+            currentAIWorkingConversationId = null;
+            return false;
+        }
+    }
+
+    /**
+     * Analisa mensagens do cliente para verificar se prefere ligação ao invés de WhatsApp
+     */
+    async function analyzeMessagesForPhonePreference(messages) {
+        if (!agentIASettings || !agentIASettings.openai_key) {
+            console.warn('⚠️ Agente IA não configurado ou sem chave OpenAI');
+            return false;
+        }
+
+        try {
+            console.log('🤖 Analisando mensagens para verificar preferência de contato...');
+            
+            // Prepara contexto das mensagens
+            const messagesContext = messages
+                .filter(msg => msg.sender === 'client')
+                .map(msg => `Cliente: ${msg.content}`)
+                .join('\n');
+
+            if (!messagesContext || messagesContext.trim().length === 0) {
+                return false;
+            }
+
+            const systemPrompt = `Você é um assistente especializado em analisar mensagens para identificar se o cliente prefere receber ligação ao invés de usar WhatsApp. Retorne APENAS "true" se o cliente indicar que:
+- Não tem WhatsApp
+- Não quer usar WhatsApp
+- Prefere receber ligação
+- Não usa WhatsApp
+- Quer ser ligado
+- Prefere telefone ao invés de WhatsApp
+
+Retorne "false" se o cliente não mencionar nada sobre preferir ligação ou se indicar que pode usar WhatsApp. Formato de resposta: apenas "true" ou "false".`;
+
+            const userPrompt = `Analise as seguintes mensagens do cliente e determine se ele prefere receber ligação ao invés de WhatsApp:\n\n${messagesContext}\n\nRetorne apenas "true" ou "false".`;
+
+            // Log do contexto enviado ao OpenAI
+            const requestBody = {
+                model: 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ],
+                temperature: 0.3,
+                max_tokens: 10
+            };
+            
+            console.log('📤 [OpenAI] Chamada: analyzeMessagesForPhonePreference');
+            console.log('📤 [OpenAI] Contexto enviado:', JSON.stringify({
+                function: 'analyzeMessagesForPhonePreference',
+                model: requestBody.model,
+                temperature: requestBody.temperature,
+                max_tokens: requestBody.max_tokens,
+                system_prompt: systemPrompt,
+                user_prompt: userPrompt,
+                messages_context: messagesContext,
+                messages_count: messages.filter(msg => msg.sender === 'client').length
+            }, null, 2));
+
+            // Faz requisição com timeout de 30 segundos
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            try {
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${agentIASettings.openai_key}`
+                    },
+                    body: JSON.stringify(requestBody),
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('❌ Erro na API OpenAI:', response.status, errorText);
+                    return false;
+                }
+
+                const data = await response.json();
+                const preference = data.choices[0]?.message?.content?.trim() || 'false';
+
+                if (preference.toLowerCase() === 'true') {
+                    console.log('✅ Cliente prefere receber ligação ao invés de WhatsApp');
+                    return true;
+                }
+
+                console.log('ℹ️ Cliente não indicou preferência por ligação (usa WhatsApp)');
+                return false;
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                if (fetchError.name === 'AbortError') {
+                    console.error('❌ Erro ao analisar preferência de contato: Timeout após 30 segundos');
+                } else if (fetchError.message && fetchError.message.includes('Failed to fetch')) {
+                    console.error('❌ Erro ao analisar preferência de contato: Erro de rede (Failed to fetch). Verifique sua conexão com a internet.');
+                } else {
+                    console.error('❌ Erro ao analisar preferência de contato:', fetchError);
+                }
+                return false;
+            }
+        } catch (error) {
+            console.error('❌ Erro ao analisar preferência de contato:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Analisa mensagens do cliente para extrair número de telefone usando OpenAI
+     */
+    async function analyzeMessagesForPhoneNumber(messages) {
+        if (!agentIASettings || !agentIASettings.openai_key) {
+            console.warn('⚠️ Agente IA não configurado ou sem chave OpenAI');
+            return null;
+        }
+
+        try {
+            console.log('🤖 Analisando mensagens para extrair número de telefone...');
+            
+            // Prepara contexto das mensagens
+            const messagesContext = messages
+                .filter(msg => msg.sender === 'client')
+                .map(msg => `Cliente: ${msg.content}`)
+                .join('\n');
+
+            if (!messagesContext || messagesContext.trim().length === 0) {
+                console.warn('⚠️ Nenhuma mensagem do cliente encontrada para análise');
+                return null;
+            }
+
+            const systemPrompt = `Você é um assistente especializado em extrair números de telefone de mensagens. Analise as mensagens e retorne APENAS o número de telefone encontrado, sem espaços, sem caracteres especiais, apenas números. Se encontrar múltiplos números, retorne o mais provável (geralmente o primeiro mencionado). Se não encontrar nenhum número de telefone, retorne "null". Formato de resposta: apenas o número ou "null".`;
+
+            const userPrompt = `Analise as seguintes mensagens do cliente e extraia o número de telefone se houver:\n\n${messagesContext}\n\nRetorne apenas o número de telefone (sem espaços, sem caracteres) ou "null" se não encontrar.`;
+
+            // Log do contexto enviado ao OpenAI
+            const requestBody = {
+                model: 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ],
+                temperature: 0.3,
+                max_tokens: 50
+            };
+            
+            console.log('📤 [OpenAI] Chamada: analyzeMessagesForPhoneNumber');
+            console.log('📤 [OpenAI] Contexto enviado:', JSON.stringify({
+                function: 'analyzeMessagesForPhoneNumber',
+                model: requestBody.model,
+                temperature: requestBody.temperature,
+                max_tokens: requestBody.max_tokens,
+                system_prompt: systemPrompt,
+                user_prompt: userPrompt,
+                messages_context: messagesContext,
+                messages_count: messages.filter(msg => msg.sender === 'client').length
+            }, null, 2));
+
+            // Faz requisição com timeout de 30 segundos
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            try {
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${agentIASettings.openai_key}`
+                    },
+                    body: JSON.stringify(requestBody),
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('❌ Erro na API OpenAI:', response.status, errorText);
+                    return null;
+                }
+
+                const data = await response.json();
+                const extractedPhone = data.choices[0]?.message?.content?.trim() || null;
+
+                if (extractedPhone && extractedPhone !== 'null' && extractedPhone.length > 0) {
+                    // Remove caracteres não numéricos
+                    const cleanPhone = extractedPhone.replace(/\D/g, '');
+                    if (cleanPhone.length >= 9) { // Mínimo de 9 dígitos para ser um telefone válido
+                        console.log('✅ Número de telefone extraído:', cleanPhone);
+                        return cleanPhone;
+                    }
+                }
+
+                console.log('ℹ️ Nenhum número de telefone encontrado nas mensagens');
+                return null;
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                if (fetchError.name === 'AbortError') {
+                    console.error('❌ Erro ao analisar mensagens para telefone: Timeout após 30 segundos');
+                } else if (fetchError.message && fetchError.message.includes('Failed to fetch')) {
+                    console.error('❌ Erro ao analisar mensagens para telefone: Erro de rede (Failed to fetch). Verifique sua conexão com a internet.');
+                } else {
+                    console.error('❌ Erro ao analisar mensagens para telefone:', fetchError);
+                }
+                return null;
+            }
+        } catch (error) {
+            console.error('❌ Erro ao analisar mensagens para telefone:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Gera resposta que responde ao cliente e reforça solicitação de telefone
+     */
+    async function generateReinforcePhoneRequestMessage(clientMessage, userName, conversationContext) {
+        if (!agentIASettings || !agentIASettings.openai_key) {
+            console.warn('⚠️ Agente IA não configurado ou sem chave OpenAI');
+            return null;
+        }
+
+        try {
+            console.log('🤖 Gerando resposta que reforça solicitação de telefone...');
+            
+            const systemPrompt = `Você é um assistente imobiliário profissional e educado. O cliente já foi solicitado anteriormente a fornecer o número de telefone, mas ainda não forneceu. Sua função é:
+1. Responder de forma educada e profissional à mensagem atual do cliente
+2. Reforçar a importância de fornecer o número de telefone (preferencialmente WhatsApp)
+3. Explicar que o telefone é essencial para facilitar a comunicação e poder ligar para passar todas as informações sobre a propriedade
+4. Seja breve, educado, mas enfático sobre a importância do telefone`;
+
+            const userPrompt = `Cliente "${userName}" enviou a seguinte mensagem: "${clientMessage}"
+
+Contexto da conversa:
+${conversationContext || 'Nenhum contexto adicional disponível'}
+
+Baseado no prompt configurado: "${agentIASettings.phone_prompt}"
+
+Gere uma resposta que:
+1. Responda educadamente à mensagem do cliente
+2. Reforce a importância de fornecer o número de telefone (preferencialmente WhatsApp)
+3. Explique que o telefone é essencial para facilitar a comunicação
+4. Seja breve, profissional, mas enfático sobre a necessidade do telefone`;
+
+            // Log do contexto enviado ao OpenAI
+            const requestBody = {
+                model: 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ],
+                max_tokens: 200,
+                temperature: 0.7
+            };
+            
+            console.log('📤 [OpenAI] Chamada: generateReinforcePhoneRequestMessage');
+            console.log('📤 [OpenAI] Contexto enviado:', JSON.stringify({
+                function: 'generateReinforcePhoneRequestMessage',
+                model: requestBody.model,
+                temperature: requestBody.temperature,
+                max_tokens: requestBody.max_tokens,
+                system_prompt: systemPrompt,
+                user_prompt: userPrompt,
+                client_message: clientMessage,
+                user_name: userName,
+                conversation_context: conversationContext,
+                phone_prompt_config: agentIASettings.phone_prompt
+            }, null, 2));
+
+            // Faz requisição com timeout de 30 segundos
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            try {
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${agentIASettings.openai_key}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody),
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const message = data.choices[0]?.message?.content?.trim();
+                    if (message) {
+                        console.log('✅ Resposta gerada (reforçando telefone):', message);
+                        return message;
+                    } else {
+                        console.warn('⚠️ Resposta vazia da OpenAI');
+                    }
+                } else {
+                    const error = await response.json().catch(() => ({}));
+                    console.error('❌ Erro ao gerar resposta da OpenAI:', response.status, error);
+                }
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                if (fetchError.name === 'AbortError') {
+                    console.error('❌ Erro ao chamar OpenAI: Timeout após 30 segundos');
+                } else if (fetchError.message && fetchError.message.includes('Failed to fetch')) {
+                    console.error('❌ Erro ao chamar OpenAI: Erro de rede (Failed to fetch). Verifique sua conexão com a internet.');
+                } else {
+                    console.error('❌ Erro ao chamar OpenAI:', fetchError);
+                }
+            }
+        } catch (error) {
+            console.error('❌ Erro ao chamar OpenAI:', error);
+        }
+        return null;
+    }
+
+    /**
      * Gera resposta usando OpenAI para solicitar telefone
      */
     async function generatePhoneRequestMessage(clientMessage, userName) {
@@ -2402,35 +3658,69 @@ Baseado no prompt configurado: "${agentIASettings.phone_prompt}"
 
 Gere uma resposta educada e profissional solicitando o número de telefone (preferencialmente WhatsApp) do cliente. A resposta deve ser natural, breve e explicar que você precisa do telefone para ligar e passar todas as informações sobre a propriedade.`;
 
-            const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${agentIASettings.openai_key}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    model: 'gpt-4o-mini',
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: userPrompt }
-                    ],
-                    max_tokens: 150,
-                    temperature: 0.7
-                })
-            });
+            // Log do contexto enviado ao OpenAI
+            const requestBody = {
+                model: 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ],
+                max_tokens: 150,
+                temperature: 0.7
+            };
+            
+            console.log('📤 [OpenAI] Chamada: generatePhoneRequestMessage');
+            console.log('📤 [OpenAI] Contexto enviado:', JSON.stringify({
+                function: 'generatePhoneRequestMessage',
+                model: requestBody.model,
+                temperature: requestBody.temperature,
+                max_tokens: requestBody.max_tokens,
+                system_prompt: systemPrompt,
+                user_prompt: userPrompt,
+                client_message: clientMessage,
+                user_name: userName,
+                phone_prompt_config: agentIASettings.phone_prompt
+            }, null, 2));
 
-            if (response.ok) {
-                const data = await response.json();
-                const message = data.choices[0]?.message?.content?.trim();
-                if (message) {
-                    console.log('✅ Resposta gerada pelo Agente IA:', message);
-                    return message;
+            // Faz requisição com timeout de 30 segundos
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            try {
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${agentIASettings.openai_key}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody),
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const message = data.choices[0]?.message?.content?.trim();
+                    if (message) {
+                        console.log('✅ Resposta gerada pelo Agente IA:', message);
+                        return message;
+                    } else {
+                        console.warn('⚠️ Resposta vazia da OpenAI');
+                    }
                 } else {
-                    console.warn('⚠️ Resposta vazia da OpenAI');
+                    const error = await response.json().catch(() => ({}));
+                    console.error('❌ Erro ao gerar resposta da OpenAI:', response.status, error);
                 }
-            } else {
-                const error = await response.json().catch(() => ({}));
-                console.error('❌ Erro ao gerar resposta da OpenAI:', response.status, error);
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                if (fetchError.name === 'AbortError') {
+                    console.error('❌ Erro ao chamar OpenAI: Timeout após 30 segundos');
+                } else if (fetchError.message && fetchError.message.includes('Failed to fetch')) {
+                    console.error('❌ Erro ao chamar OpenAI: Erro de rede (Failed to fetch). Verifique sua conexão com a internet.');
+                } else {
+                    console.error('❌ Erro ao chamar OpenAI:', fetchError);
+                }
             }
         } catch (error) {
             console.error('❌ Erro ao chamar OpenAI:', error);
@@ -2454,23 +3744,54 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
             const typingDelay = Math.random() * 3000 + 2000; // 2-5 segundos
             await new Promise(resolve => setTimeout(resolve, typingDelay));
 
-            // Simula digitação (opcional, mas mais natural)
+            // Foca no textarea e limpa
             textarea.focus();
-            textarea.value = '';
             
-            // Digita a mensagem caractere por caractere (simula digitação humana)
-            for (let i = 0; i < message.length; i++) {
-                textarea.value += message[i];
-                textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            // Limpa o textarea de forma segura
+            textarea.value = '';
+            textarea.textContent = '';
+            
+            // Aguarda um pouco para garantir que o textarea está pronto
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // Insere a mensagem completa de uma vez (mais confiável que caractere por caractere)
+            // Usa múltiplas abordagens para garantir compatibilidade
+            try {
+                // Método 1: Define diretamente o value
+                textarea.value = message;
                 
-                // Delay aleatório entre caracteres (50-150ms)
-                const charDelay = Math.random() * 100 + 50;
-                await new Promise(resolve => setTimeout(resolve, charDelay));
+                // Método 2: Usa setter nativo se disponível (para frameworks como React)
+                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+                if (nativeInputValueSetter) {
+                    nativeInputValueSetter.call(textarea, message);
+                }
+                
+                // Método 3: Define innerHTML/textContent como fallback
+                textarea.textContent = message;
+            } catch (error) {
+                console.warn('⚠️ Erro ao definir valor do textarea, tentando método alternativo:', error);
+                // Fallback: tenta definir diretamente
+                textarea.value = message;
             }
-
-            // Dispara evento de input para garantir que o botão de enviar seja habilitado
-            textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            textarea.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            // Dispara eventos para garantir que o textarea reconheça a mudança
+            const inputEvent = new Event('input', { bubbles: true, cancelable: true });
+            const changeEvent = new Event('change', { bubbles: true, cancelable: true });
+            const keyupEvent = new Event('keyup', { bubbles: true, cancelable: true });
+            
+            // Dispara os eventos em sequência
+            textarea.dispatchEvent(inputEvent);
+            await new Promise(resolve => setTimeout(resolve, 50));
+            textarea.dispatchEvent(changeEvent);
+            await new Promise(resolve => setTimeout(resolve, 50));
+            textarea.dispatchEvent(keyupEvent);
+            
+            // Verifica se o valor foi definido corretamente
+            if (textarea.value !== message) {
+                console.warn('⚠️ Valor do textarea não corresponde à mensagem. Tentando novamente...');
+                textarea.value = message;
+                textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            }
 
             // Aguarda um pouco antes de enviar (1-3 segundos)
             const sendDelay = Math.random() * 2000 + 1000; // 1-3 segundos
@@ -2521,6 +3842,10 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
             if (sendButton && !sendButton.disabled) {
                 sendButton.click();
                 console.log('✅ Mensagem enviada pelo Agente IA');
+                
+                // Salva a mensagem do AI no DB
+                await saveAIMessageToDB(message);
+                
                 return true;
             } else {
                 console.warn('⚠️ Botão de enviar não encontrado ou desabilitado');
@@ -2528,6 +3853,45 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
             }
         } catch (error) {
             console.error('❌ Erro ao enviar mensagem:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Salva mensagem do AI no banco de dados
+     */
+    async function saveAIMessageToDB(messageContent) {
+        try {
+            const conversationId = getCurrentConversationId();
+            if (!conversationId) {
+                console.warn('⚠️ Não foi possível obter conversationId para salvar mensagem do AI');
+                return false;
+            }
+
+            if (typeof ChatMessage !== 'undefined' && typeof saveChatMessages !== 'undefined') {
+                const aiMessage = new ChatMessage({
+                    messageId: `${conversationId}_ai_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    conversationId: conversationId,
+                    content: messageContent,
+                    timestamp: new Date().toISOString(),
+                    sender: 'agent',
+                    time: '',
+                    order: 0 // Será atualizado quando extrair todas as mensagens
+                });
+
+                const saved = await saveChatMessages([aiMessage]);
+                if (saved) {
+                    console.log('✅ Mensagem do Agente IA salva no DB:', conversationId);
+                } else {
+                    console.warn('⚠️ Falha ao salvar mensagem do Agente IA no DB');
+                }
+                return saved;
+            } else {
+                console.warn('⚠️ Funções do banco de dados não disponíveis (ChatMessage ou saveChatMessages)');
+                return false;
+            }
+        } catch (error) {
+            console.error('❌ Erro ao salvar mensagem do AI no DB:', error);
             return false;
         }
     }
@@ -2599,46 +3963,71 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
     async function processConversationWithoutPhone(conversationId, userName, lastMessage) {
         console.log('🤖 Agente IA: Iniciando processamento para conversa:', conversationId, userName);
         
-        // Verifica se já processou esta conversa nesta sessão
-        if (processedConversationsWithoutPhone.has(conversationId)) {
-            console.log('ℹ️ Conversa já processada pelo Agente IA nesta sessão:', conversationId);
-            return;
-        }
+        // Marca que o AI está trabalhando
+        isAIWorking = true;
+        currentAIWorkingConversationId = conversationId;
+        console.log('🔒 AI marcado como trabalhando para conversa:', conversationId);
+        
+        try {
+            // Verifica se já processou esta conversa nesta sessão
+            if (processedConversationsWithoutPhone.has(conversationId)) {
+                console.log('ℹ️ Conversa já processada pelo Agente IA nesta sessão:', conversationId);
+                isAIWorking = false;
+                currentAIWorkingConversationId = null;
+                return;
+            }
 
-        // Verifica se o Agente IA já solicitou telefone anteriormente (no banco)
-        const alreadyRequested = await hasAgentIARequestedPhone(conversationId);
-        if (alreadyRequested) {
-            console.log('ℹ️ Agente IA já solicitou telefone para esta conversa anteriormente, não será solicitado novamente');
-            processedConversationsWithoutPhone.add(conversationId); // Marca como processada para não verificar novamente
-            return;
-        }
+            // Verifica se o Agente IA já solicitou telefone anteriormente (no banco)
+            const alreadyRequested = await hasAgentIARequestedPhone(conversationId);
+            if (alreadyRequested) {
+                console.log('ℹ️ Agente IA já solicitou telefone para esta conversa anteriormente, não será solicitado novamente');
+                processedConversationsWithoutPhone.add(conversationId); // Marca como processada para não verificar novamente
+                isAIWorking = false;
+                currentAIWorkingConversationId = null;
+                return;
+            }
 
-        // Carrega configurações se ainda não carregou
-        if (!agentIASettings) {
-            console.log('📥 Carregando configurações do Agente IA...');
-            await loadAgentIASettings();
-        }
+            // Carrega configurações se ainda não carregou
+            if (!agentIASettings) {
+                console.log('📥 Carregando configurações do Agente IA...');
+                await loadAgentIASettings();
+            }
 
-        // Verifica se Agente IA está ativado
-        if (!agentIASettings || !agentIASettings.enabled) {
-            console.log('ℹ️ Agente IA não está ativado ou não configurado');
-            return;
-        }
+            // Verifica se Agente IA está ativado
+            if (!agentIASettings || !agentIASettings.enabled) {
+                console.log('ℹ️ Agente IA não está ativado ou não configurado');
+                isAIWorking = false;
+                currentAIWorkingConversationId = null;
+                return;
+            }
 
-        console.log('✅ Agente IA está ativado e configurado');
+            console.log('✅ Agente IA está ativado e configurado');
 
-        // Verifica se a conversa está aberta (não abre, apenas verifica)
-        const currentConversationId = getCurrentConversationId();
-        if (currentConversationId !== conversationId) {
-            console.log('⚠️ Conversa não está aberta. Agente IA só processa conversas ABERTAS.', {
-                current: currentConversationId,
-                target: conversationId
-            });
-            console.log('ℹ️ A abertura automática é feita por processUnreadConversations() quando detecta novas mensagens.');
-            return;
-        }
+            // Verifica se a conversa está aberta (não abre, apenas verifica)
+            const currentConversationId = getCurrentConversationId();
+            if (currentConversationId !== conversationId) {
+                console.log('⚠️ Conversa não está aberta. Agente IA só processa conversas ABERTAS.', {
+                    current: currentConversationId,
+                    target: conversationId
+                });
+                console.log('ℹ️ A abertura automática é feita por processUnreadConversations() quando detecta novas mensagens.');
+                return;
+            }
 
         console.log('✅ Conversa está aberta, processando com Agente IA...');
+
+        // Verifica se a última mensagem é do agente (não deve enviar se for)
+        // Extrai mensagens do chat para verificar
+        const { messages: chatMessages } = extractChatMessages();
+        if (chatMessages && chatMessages.length > 0) {
+            const lastChatMessage = chatMessages[chatMessages.length - 1];
+            if (lastChatMessage && lastChatMessage.sender === 'agent') {
+                console.log('⏸️ Última mensagem do chat é do agente, não enviando nova mensagem. Aguardando resposta do cliente.');
+                isAIWorking = false;
+                currentAIWorkingConversationId = null;
+                return;
+            }
+        }
 
         // Aguarda um pouco para garantir que a interface está pronta
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -2658,6 +4047,15 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
                 console.log('✅ Agente IA: Mensagem enviada com sucesso para', userName);
                 // Marca que o Agente IA já solicitou telefone
                 await markAgentIAPhoneRequested(conversationId);
+                // Marca tempo da última mensagem do AI
+                lastAIMessageTime.set(conversationId, Date.now());
+                
+                // Aguarda um pouco para garantir que a mensagem foi processada
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Após enviar mensagem com sucesso, sempre faz refresh
+                console.log('✅ Agente IA: Mensagem enviada, fazendo refresh...');
+                await refreshAfterAIMessage();
             } else {
                 console.warn('⚠️ Agente IA: Falha ao enviar mensagem');
                 // Remove do set para tentar novamente depois
@@ -2665,6 +4063,16 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
             }
         } else {
             console.warn('⚠️ Agente IA: Não foi possível gerar mensagem');
+        }
+        } finally {
+            // Sempre libera o flag quando termina (sucesso ou erro)
+            isAIWorking = false;
+            currentAIWorkingConversationId = null;
+            console.log('🔓 AI liberado, pode processar próxima conversa');
+            
+            // NOTA: checkAndRefreshAfterConversation() é chamado APENAS após enviar mensagem com sucesso
+            // Se chegou aqui sem enviar mensagem, não faz refresh, apenas continua para próxima conversa
+            // (o refresh já foi chamado acima se a mensagem foi enviada com sucesso)
         }
     }
 
@@ -2722,17 +4130,53 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
      * A abertura automática é feita em processUnreadConversations() quando detecta novas mensagens.
      */
     async function checkAndProcessConversationWithoutPhone(conversationId, phoneNumber, userName, lastMessage) {
-        console.log('🔍 Verificando conversa para Agente IA:', {
+        console.log('🔍 [DEBUG] Verificando conversa para Agente IA:', {
             conversationId,
             hasPhone: !!(phoneNumber && phoneNumber.trim()),
             userName,
-            hasLastMessage: !!lastMessage
+            hasLastMessage: !!lastMessage,
+            phoneNumber: phoneNumber || '(vazio)'
         });
+
+        // Verifica se configurações do Agente IA estão carregadas
+        if (!agentIASettings) {
+            console.log('📥 [DEBUG] Carregando configurações do Agente IA...');
+            await loadAgentIASettings();
+        }
+
+        // Verifica se Agente IA está ativado
+        if (!agentIASettings) {
+            console.warn('⚠️ [DEBUG] Agente IA não configurado ou não encontrado no banco de dados');
+            return;
+        }
+
+        console.log('📋 [DEBUG] Configurações do Agente IA:', {
+            enabled: agentIASettings.enabled,
+            hasOpenAIKey: !!(agentIASettings.openai_key),
+            hasPhonePrompt: !!(agentIASettings.phone_prompt),
+            openaiKeyLength: agentIASettings.openai_key ? agentIASettings.openai_key.length : 0
+        });
+
+        if (!agentIASettings.enabled) {
+            console.warn('⚠️ [DEBUG] Agente IA está DESATIVADO nas configurações');
+            return;
+        }
+
+        if (!agentIASettings.openai_key) {
+            console.warn('⚠️ [DEBUG] Chave OpenAI não configurada');
+            return;
+        }
 
         // Verifica se a conversa está ABERTA (não abre, apenas verifica)
         const currentOpenConversationId = getCurrentConversationId();
+        console.log('📂 [DEBUG] Status da conversa:', {
+            currentOpen: currentOpenConversationId,
+            target: conversationId,
+            isOpen: currentOpenConversationId === conversationId
+        });
+
         if (currentOpenConversationId !== conversationId) {
-            console.log('⚠️ Conversa não está aberta. Agente IA só processa conversas ABERTAS.', {
+            console.log('⚠️ [DEBUG] Conversa não está aberta. Agente IA só processa conversas ABERTAS.', {
                 current: currentOpenConversationId,
                 target: conversationId
             });
@@ -2740,13 +4184,15 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
             return;
         }
 
-        console.log('✅ Conversa está aberta, verificando se deve processar...');
+        console.log('✅ [DEBUG] Conversa está aberta, verificando se deve processar...');
 
         // Se tem telefone, não processa
         if (phoneNumber && phoneNumber.trim()) {
-            console.log('✅ Conversa tem telefone, não será processada pelo Agente IA');
+            console.log('✅ [DEBUG] Conversa tem telefone, não será processada pelo Agente IA:', phoneNumber);
             return;
         }
+
+        console.log('✅ [DEBUG] Conversa NÃO tem telefone, pode ser processada pelo Agente IA');
 
         // Se não tem userName ou lastMessage, tenta buscar
         if (!userName || !lastMessage) {
@@ -2766,20 +4212,59 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
         }
 
         if (!userName || !lastMessage) {
-            console.warn('⚠️ Dados insuficientes para processar:', { userName, hasLastMessage: !!lastMessage });
+            console.warn('⚠️ [DEBUG] Dados insuficientes para processar:', { 
+                userName: userName || '(vazio)', 
+                hasLastMessage: !!lastMessage,
+                lastMessage: lastMessage ? lastMessage.substring(0, 100) : '(vazio)'
+            });
+            return;
+        }
+
+        console.log('✅ [DEBUG] Dados suficientes para processar:', {
+            userName,
+            lastMessagePreview: lastMessage.substring(0, 50) + '...'
+        });
+
+        // Verifica se já foi solicitado telefone anteriormente
+        const alreadyRequested = await hasAgentIARequestedPhone(conversationId);
+        console.log('📋 [DEBUG] Verificando se Agente IA já solicitou telefone:', {
+            conversationId,
+            alreadyRequested
+        });
+
+        if (alreadyRequested) {
+            console.log('ℹ️ [DEBUG] Agente IA já solicitou telefone para esta conversa anteriormente, não será solicitado novamente');
             return;
         }
 
         // Adiciona delay aleatório antes de processar (5-15 segundos)
         const delay = Math.random() * 10000 + 5000; // 5-15 segundos
-        console.log(`⏱️ Processando em ${Math.round(delay/1000)}s...`);
+        console.log(`⏱️ [DEBUG] Processando em ${Math.round(delay/1000)}s...`);
+        
+        // Marca que esta conversa está aguardando processamento do Agente IA
+        conversationsWaitingForAI.add(conversationId);
+        console.log('📝 [DEBUG] Conversa marcada como aguardando Agente IA:', conversationId);
+        
         setTimeout(async () => {
-            // Verifica novamente se ainda é a conversa aberta antes de processar
-            const stillOpen = getCurrentConversationId();
-            if (stillOpen === conversationId) {
-                await processConversationWithoutPhone(conversationId, userName, lastMessage);
-            } else {
-                console.log('ℹ️ Conversa foi fechada antes de processar, cancelando Agente IA');
+            try {
+                // Verifica novamente se ainda é a conversa aberta antes de processar
+                const stillOpen = getCurrentConversationId();
+                console.log('🔍 [DEBUG] Verificando se conversa ainda está aberta antes de processar:', {
+                    stillOpen,
+                    target: conversationId,
+                    isStillOpen: stillOpen === conversationId
+                });
+
+                if (stillOpen === conversationId) {
+                    console.log('✅ [DEBUG] Conversa ainda está aberta, iniciando processamento...');
+                    await processConversationWithoutPhone(conversationId, userName, lastMessage);
+                } else {
+                    console.log('⚠️ [DEBUG] Conversa foi fechada antes de processar, cancelando Agente IA');
+                }
+            } finally {
+                // Remove da lista de conversas aguardando processamento
+                conversationsWaitingForAI.delete(conversationId);
+                console.log('✅ [DEBUG] Conversa removida da lista de aguardando Agente IA:', conversationId);
             }
         }, delay);
     }

@@ -69,23 +69,53 @@
                     <h2 class="settings-title">⚙️ Configurações Gerais do Sistema</h2>
                     
                     <div class="settings-section">
-                        <h3 class="settings-section-title">ℹ️ Sobre o Sistema</h3>
-                        <p class="settings-description">Informações gerais sobre o ImobFlash.</p>
+                        <h3 class="settings-section-title">🔄 Reload Automático</h3>
+                        <p class="settings-description">Configure o reload automático da página para manter a extensão funcionando.</p>
                         
                         <div class="settings-card">
                             <div class="settings-card-header">
-                                <h4>Informações do Sistema</h4>
+                                <h4>Configurações de Reload</h4>
+                                <p>Ative ou desative o reload automático e defina o intervalo.</p>
                             </div>
                             <div class="settings-card-body">
-                                <div style="display: grid; gap: 16px;">
-                                    <div>
-                                        <label style="color: var(--text-muted); font-size: 12px; display: block; margin-bottom: 4px;">Versão</label>
-                                        <p style="color: var(--text); font-size: 14px;">1.0.0</p>
-                                    </div>
-                                    <div>
-                                        <label style="color: var(--text-muted); font-size: 12px; display: block; margin-bottom: 4px;">Descrição</label>
-                                        <p style="color: var(--text); font-size: 14px;">Sistema de gerenciamento de conversas e leads imobiliários.</p>
-                                    </div>
+                                <div class="form-group">
+                                    <input type="checkbox" id="autoReloadEnabled" class="form-checkbox">
+                                    <label for="autoReloadEnabled" style="display: inline-block; margin-left: 8px;">Ativar Reload Automático</label>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="autoReloadMinMinutes">Intervalo Mínimo (minutos)</label>
+                                    <input type="number" id="autoReloadMinMinutes" class="form-input" min="1" max="60" value="3">
+                                    <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Tempo mínimo antes do reload automático</p>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="autoReloadMaxMinutes">Intervalo Máximo (minutos)</label>
+                                    <input type="number" id="autoReloadMaxMinutes" class="form-input" min="1" max="60" value="10">
+                                    <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Tempo máximo antes do reload automático</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">🔄 Refresh Após Processar Conversa</h3>
+                        <p class="settings-description">Configure se a página deve ser recarregada após processar uma conversa, antes de passar para a próxima.</p>
+                        
+                        <div class="settings-card">
+                            <div class="settings-card-header">
+                                <h4>Configuração de Refresh</h4>
+                                <p>Ative ou desative o refresh automático após processar cada conversa.</p>
+                            </div>
+                            <div class="settings-card-body">
+                                <div class="form-group">
+                                    <input type="checkbox" id="refreshAfterConversation" class="form-checkbox">
+                                    <label for="refreshAfterConversation" style="display: inline-block; margin-left: 8px;">Ativar Refresh Após Processar Conversa</label>
+                                    <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Quando ativado, a página será recarregada após processar cada conversa, antes de passar para a próxima conversa com mensagens não lidas. Isso ajuda a manter a extensão funcionando corretamente e evitar problemas de memória.</p>
+                                </div>
+                                
+                                <div class="form-actions">
+                                    <button class="btn btn-primary" id="saveGeneralSettingsBtn">Salvar Configurações</button>
                                 </div>
                             </div>
                         </div>
@@ -97,10 +127,14 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="../../js/config.js"></script>
+    <script src="../../js/toast.js"></script>
+    <script src="../../js/settings-geral.js"></script>
     <script>
         // Função de logout
         function logout() {
             if (confirm('Deseja realmente sair?')) {
+                sessionStorage.removeItem('imobflash_logged_in');
+                sessionStorage.removeItem('imobflash_user_email');
                 window.location.href = '../../index.html';
             }
         }
