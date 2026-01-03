@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ImobFlash Agent - Logs</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            height: 600px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: #252526;
+            padding: 15px 20px;
+            border-bottom: 1px solid #3e3e42;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 16px;
+            color: #d4d4d4;
+            font-weight: 600;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 6px 12px;
+            background: #0e639c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #1177bb;
+        }
+
+        .btn.secondary {
+            background: #3e3e42;
+        }
+
+        .btn.secondary:hover {
+            background: #505050;
+        }
+
+        .logs-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .log-entry {
+            margin-bottom: 4px;
+            padding: 4px 8px;
+            border-radius: 3px;
+            word-wrap: break-word;
+        }
+
+        .log-entry:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .log-time {
+            color: #858585;
+            margin-right: 8px;
+        }
+
+        .log-level-info {
+            color: #4ec9b0;
+        }
+
+        .log-level-success {
+            color: #89d185;
+        }
+
+        .log-level-warning {
+            color: #dcdcaa;
+        }
+
+        .log-level-error {
+            color: #f48771;
+        }
+
+        .log-level-debug {
+            color: #569cd6;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #858585;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        /* Scrollbar styling */
+        .logs-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .logs-container::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
+        .logs-container::-webkit-scrollbar-thumb {
+            background: #424242;
+            border-radius: 4px;
+        }
+
+        .logs-container::-webkit-scrollbar-thumb:hover {
+            background: #4e4e4e;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📋 Logs em Tempo Real</h1>
+        <div class="header-actions">
+            <button class="btn secondary" id="clear-btn">Limpar</button>
+            <button class="btn" id="auto-scroll-btn">Auto-scroll: ON</button>
+        </div>
+    </div>
+
+    <div class="logs-container" id="logs-container">
+        <div class="empty-state">
+            <div class="empty-state-icon">📝</div>
+            <p>Aguardando logs...</p>
+        </div>
+    </div>
+
+    <script src="logs-popup.js"></script>
+</body>
+</html>
+

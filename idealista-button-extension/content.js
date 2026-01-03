@@ -2,6 +2,56 @@
     'use strict';
 
     // ============================================================================
+    // HELPER DE LOGS PARA POPUP
+    // ============================================================================
+    
+    /**
+     * Envia log para o popup de logs
+     */
+    function sendLogToPopup(message, level = null) {
+        try {
+            chrome.runtime.sendMessage({
+                type: 'log',
+                message: message,
+                level: level
+            }).catch(() => {
+                // Ignora erros se o popup não estiver aberto
+            });
+        } catch (e) {
+            // Ignora erros
+        }
+    }
+    
+    // Intercepta console.log para enviar ao popup
+    const originalConsoleLog = console.log;
+    const originalConsoleError = console.error;
+    const originalConsoleWarn = console.warn;
+    
+    console.log = function(...args) {
+        originalConsoleLog.apply(console, args);
+        const message = args.map(arg => 
+            typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+        ).join(' ');
+        sendLogToPopup(message, 'info');
+    };
+    
+    console.error = function(...args) {
+        originalConsoleError.apply(console, args);
+        const message = args.map(arg => 
+            typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+        ).join(' ');
+        sendLogToPopup(message, 'error');
+    };
+    
+    console.warn = function(...args) {
+        originalConsoleWarn.apply(console, args);
+        const message = args.map(arg => 
+            typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+        ).join(' ');
+        sendLogToPopup(message, 'warning');
+    };
+
+    // ============================================================================
     // CONSTANTES
     // ============================================================================
     const WHATSAPP_BUTTON_ID = 'whatsapp-button-idealista-unique';
@@ -27,7 +77,7 @@
         // Tenta múltiplos seletores para encontrar o botão de telefone
         const header = getConversationHeader();
         if (!header) {
-            console.log('ℹ️ Header da conversa não encontrado');
+            // Não loga - é normal não ter header quando não há conversa aberta
             return null;
         }
 
@@ -1170,10 +1220,8 @@
             });
         });
         
-        // Também monitora a lista completa periodicamente (se AI não estiver trabalhando)
-        if (!isAIWorking) {
-            monitorConversationsList();
-        }
+        // Não chama monitorConversationsList aqui para evitar loops
+        // O observer já detecta mudanças, não precisa verificar toda a lista novamente
     });
 
     /**
@@ -1220,7 +1268,7 @@
      * Clica automaticamente em uma conversa com mensagens não lidas
      * @param {HTMLElement} conversationElement - Elemento <li> da conversa
      */
-    function clickUnreadConversation(conversationElement) {
+    async function clickUnreadConversation(conversationElement) {
         const conversationId = conversationElement.getAttribute('data-conversation-id');
         if (!conversationId) return;
 
@@ -1234,11 +1282,32 @@
 
         console.log('🖱️ Clicando automaticamente na conversa não lida:', conversationId);
         
-        // Marca como processada
-        processedUnreadConversations.add(conversationId);
-        
         // Clica no botão
         cardButton.click();
+        
+        // Aguarda o header aparecer antes de marcar como processada
+        let headerFound = false;
+        const maxWaitTime = 10000; // 10 segundos máximo
+        const checkInterval = 200; // Verifica a cada 200ms
+        const startTime = Date.now();
+        
+        while (!headerFound && (Date.now() - startTime) < maxWaitTime) {
+            await new Promise(resolve => setTimeout(resolve, checkInterval));
+            const header = getConversationHeader();
+            if (header) {
+                headerFound = true;
+                console.log('✅ Header da conversa encontrado após clique');
+                break;
+            }
+        }
+        
+        if (headerFound) {
+            // Marca como processada apenas quando o header aparecer
+            processedUnreadConversations.add(conversationId);
+        } else {
+            console.warn('⚠️ Header não encontrado após 10 segundos, mas marcando como processada para evitar loop');
+            processedUnreadConversations.add(conversationId);
+        }
     }
 
     /**
@@ -1275,7 +1344,8 @@
         });
 
         if (unprocessed.length === 0) {
-            console.log('ℹ️ Todas as conversas não lidas já foram processadas');
+            // Não loga repetidamente para evitar spam no console
+            // console.log('ℹ️ Todas as conversas não lidas já foram processadas');
             return;
         }
 
@@ -1300,10 +1370,10 @@
         }
 
         unreadClickTimeout = setTimeout(async () => {
-            clickUnreadConversation(nextConversation);
+            await clickUnreadConversation(nextConversation);
             
-            // Aguarda a conversa abrir e processar
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Aguarda um pouco mais para garantir que o chat está totalmente carregado
+            await new Promise(resolve => setTimeout(resolve, 1000));
             
             // processOpenChat será chamado automaticamente quando a conversa abrir
             // e o AI processará se necessário
@@ -2999,54 +3069,66 @@
                     }
                 }, 2000);
                 
-                // REMOVIDO: Monitoramento periódico (o observer já cobre mudanças na lista)
-                
                 return true;
             }
             
             return false;
         }
         
-        // Tenta configurar imediatamente
-        if (!setupConversationsListMonitoring()) {
-            console.warn('⚠️ Lista de conversas não encontrada, tentando novamente...');
-            
-            // Tenta múltiplas vezes com intervalos crescentes
-            let attempts = 0;
-            const maxAttempts = 10;
-            const retryInterval = 2000; // 2 segundos
-            
-            const retrySetup = setInterval(() => {
-                attempts++;
-                console.log(`🔄 Tentativa ${attempts}/${maxAttempts} de encontrar lista de conversas...`);
+        // Aguarda um pouco antes de tentar configurar (para garantir que a página carregou)
+        setTimeout(() => {
+            // Tenta configurar imediatamente
+            if (!setupConversationsListMonitoring()) {
+                // Tenta múltiplas vezes com intervalos
+                let attempts = 0;
+                const maxAttempts = 15; // Aumentado para 15 tentativas
+                const retryInterval = 2000; // 2 segundos
                 
-                if (setupConversationsListMonitoring()) {
-                    clearInterval(retrySetup);
-                    console.log('✅ Lista de conversas encontrada e monitoramento configurado!');
-                } else if (attempts >= maxAttempts) {
-                    clearInterval(retrySetup);
-                    console.error('❌ Lista de conversas não encontrada após', maxAttempts, 'tentativas');
-                    console.log('ℹ️ Continuando com fallback: monitoramento direto de elementos li[data-conversation-id]');
+                const retrySetup = setInterval(() => {
+                    attempts++;
                     
-                    // Fallback: monitora diretamente os elementos li
-                    const fallbackObserver = new MutationObserver(() => {
-                        if (!isAIWorking) {
-                            monitorConversationsList();
-                        } else {
-                            console.log('⏸️ AI está trabalhando, ignorando fallback observer...');
-                        }
-                    });
-                    
-                    // Observa o body para detectar quando elementos são adicionados
-                    fallbackObserver.observe(document.body, {
-                        childList: true,
-                        subtree: true
-                    });
-                    
-                    // REMOVIDO: Processamento periódico (o fallback observer já cobre mudanças)
-                }
-            }, retryInterval);
-        }
+                    if (setupConversationsListMonitoring()) {
+                        clearInterval(retrySetup);
+                        console.log('✅ Lista de conversas encontrada e monitoramento configurado!');
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(retrySetup);
+                        console.log('ℹ️ Lista de conversas não encontrada após', maxAttempts, 'tentativas, usando fallback...');
+                        
+                        // Fallback: monitora diretamente os elementos li
+                        const fallbackObserver = new MutationObserver(() => {
+                            if (!isAIWorking) {
+                                // Tenta encontrar a lista novamente
+                                const list = findConversationsList();
+                                if (list && !conversationsListObserver.observedTarget) {
+                                    // Se encontrou agora, configura o observer principal
+                                    conversationsListObserver.observe(list, {
+                                        childList: true,
+                                        subtree: true,
+                                        attributes: false,
+                                        characterData: false
+                                    });
+                                    console.log('✅ Lista encontrada via fallback, configurando observer principal');
+                                }
+                                monitorConversationsList();
+                            }
+                        });
+                        
+                        // Observa o body para detectar quando elementos são adicionados
+                        fallbackObserver.observe(document.body, {
+                            childList: true,
+                            subtree: true
+                        });
+                        
+                        // Processa conversas existentes periodicamente via fallback
+                        setInterval(() => {
+                            if (!isAIWorking) {
+                                monitorConversationsList();
+                            }
+                        }, 5000); // A cada 5 segundos
+                    }
+                }, retryInterval);
+            }
+        }, 3000); // Aguarda 3 segundos antes de começar
         
         // Configura reload aleatório (async)
         setupRandomReload().catch(err => {
@@ -3327,6 +3409,48 @@
     }
 
     /**
+     * Faz fetch com retry automático em caso de erro de rede
+     */
+    async function fetchWithRetry(url, options, maxRetries = 3, timeout = 30000) {
+        let lastError = null;
+        
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                return response;
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                lastError = fetchError;
+                
+                // Se não é o último attempt e é erro de rede/timeout, tenta novamente
+                if (attempt < maxRetries && (
+                    fetchError.name === 'AbortError' || 
+                    (fetchError.message && fetchError.message.includes('Failed to fetch'))
+                )) {
+                    const delay = attempt * 2000; // Delay progressivo: 2s, 4s, 6s
+                    console.log(`🔄 Tentativa ${attempt}/${maxRetries} falhou (${fetchError.name === 'AbortError' ? 'timeout' : 'erro de rede'}), tentando novamente em ${delay/1000}s...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue;
+                }
+                
+                // Se é o último attempt ou erro não é de rede/timeout, lança o erro
+                throw fetchError;
+            }
+        }
+        
+        // Se chegou aqui, todas as tentativas falharam
+        throw lastError || new Error('Todas as tentativas falharam');
+    }
+
+    /**
      * Analisa mensagens do cliente para verificar se prefere ligação ao invés de WhatsApp
      */
     async function analyzeMessagesForPhonePreference(messages) {
@@ -3383,22 +3507,16 @@ Retorne "false" se o cliente não mencionar nada sobre preferir ligação ou se 
                 messages_count: messages.filter(msg => msg.sender === 'client').length
             }, null, 2));
 
-            // Faz requisição com timeout de 30 segundos
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
-            
+            // Faz requisição com retry automático
             try {
-                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                const response = await fetchWithRetry('https://api.openai.com/v1/chat/completions', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${agentIASettings.openai_key}`
                     },
-                    body: JSON.stringify(requestBody),
-                    signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
+                    body: JSON.stringify(requestBody)
+                }, 3, 30000);
 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -3417,11 +3535,10 @@ Retorne "false" se o cliente não mencionar nada sobre preferir ligação ou se 
                 console.log('ℹ️ Cliente não indicou preferência por ligação (usa WhatsApp)');
                 return false;
             } catch (fetchError) {
-                clearTimeout(timeoutId);
                 if (fetchError.name === 'AbortError') {
-                    console.error('❌ Erro ao analisar preferência de contato: Timeout após 30 segundos');
+                    console.error('❌ Erro ao analisar preferência de contato: Timeout após 3 tentativas');
                 } else if (fetchError.message && fetchError.message.includes('Failed to fetch')) {
-                    console.error('❌ Erro ao analisar preferência de contato: Erro de rede (Failed to fetch). Verifique sua conexão com a internet.');
+                    console.error('❌ Erro ao analisar preferência de contato: Erro de rede após 3 tentativas. Verifique sua conexão com a internet.');
                 } else {
                     console.error('❌ Erro ao analisar preferência de contato:', fetchError);
                 }
@@ -3483,22 +3600,16 @@ Retorne "false" se o cliente não mencionar nada sobre preferir ligação ou se 
                 messages_count: messages.filter(msg => msg.sender === 'client').length
             }, null, 2));
 
-            // Faz requisição com timeout de 30 segundos
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
-            
+            // Faz requisição com retry automático
             try {
-                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                const response = await fetchWithRetry('https://api.openai.com/v1/chat/completions', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${agentIASettings.openai_key}`
                     },
-                    body: JSON.stringify(requestBody),
-                    signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
+                    body: JSON.stringify(requestBody)
+                }, 3, 30000);
 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -3521,11 +3632,10 @@ Retorne "false" se o cliente não mencionar nada sobre preferir ligação ou se 
                 console.log('ℹ️ Nenhum número de telefone encontrado nas mensagens');
                 return null;
             } catch (fetchError) {
-                clearTimeout(timeoutId);
                 if (fetchError.name === 'AbortError') {
-                    console.error('❌ Erro ao analisar mensagens para telefone: Timeout após 30 segundos');
+                    console.error('❌ Erro ao analisar mensagens para telefone: Timeout após 3 tentativas');
                 } else if (fetchError.message && fetchError.message.includes('Failed to fetch')) {
-                    console.error('❌ Erro ao analisar mensagens para telefone: Erro de rede (Failed to fetch). Verifique sua conexão com a internet.');
+                    console.error('❌ Erro ao analisar mensagens para telefone: Erro de rede após 3 tentativas. Verifique sua conexão com a internet.');
                 } else {
                     console.error('❌ Erro ao analisar mensagens para telefone:', fetchError);
                 }
@@ -3593,22 +3703,16 @@ Gere uma resposta que:
                 phone_prompt_config: agentIASettings.phone_prompt
             }, null, 2));
 
-            // Faz requisição com timeout de 30 segundos
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
-            
+            // Faz requisição com retry automático
             try {
-                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                const response = await fetchWithRetry('https://api.openai.com/v1/chat/completions', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${agentIASettings.openai_key}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(requestBody),
-                    signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
+                    body: JSON.stringify(requestBody)
+                }, 3, 30000);
 
                 if (response.ok) {
                     const data = await response.json();
@@ -3624,13 +3728,12 @@ Gere uma resposta que:
                     console.error('❌ Erro ao gerar resposta da OpenAI:', response.status, error);
                 }
             } catch (fetchError) {
-                clearTimeout(timeoutId);
                 if (fetchError.name === 'AbortError') {
-                    console.error('❌ Erro ao chamar OpenAI: Timeout após 30 segundos');
+                    console.error('❌ Erro ao gerar resposta reforçando telefone: Timeout após 3 tentativas');
                 } else if (fetchError.message && fetchError.message.includes('Failed to fetch')) {
-                    console.error('❌ Erro ao chamar OpenAI: Erro de rede (Failed to fetch). Verifique sua conexão com a internet.');
+                    console.error('❌ Erro ao gerar resposta reforçando telefone: Erro de rede após 3 tentativas. Verifique sua conexão com a internet.');
                 } else {
-                    console.error('❌ Erro ao chamar OpenAI:', fetchError);
+                    console.error('❌ Erro ao gerar resposta reforçando telefone:', fetchError);
                 }
             }
         } catch (error) {
@@ -3682,22 +3785,16 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
                 phone_prompt_config: agentIASettings.phone_prompt
             }, null, 2));
 
-            // Faz requisição com timeout de 30 segundos
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
-            
+            // Faz requisição com retry automático
             try {
-                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                const response = await fetchWithRetry('https://api.openai.com/v1/chat/completions', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${agentIASettings.openai_key}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(requestBody),
-                    signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
+                    body: JSON.stringify(requestBody)
+                }, 3, 30000);
 
                 if (response.ok) {
                     const data = await response.json();
@@ -3713,13 +3810,12 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
                     console.error('❌ Erro ao gerar resposta da OpenAI:', response.status, error);
                 }
             } catch (fetchError) {
-                clearTimeout(timeoutId);
                 if (fetchError.name === 'AbortError') {
-                    console.error('❌ Erro ao chamar OpenAI: Timeout após 30 segundos');
+                    console.error('❌ Erro ao gerar mensagem para solicitar telefone: Timeout após 3 tentativas');
                 } else if (fetchError.message && fetchError.message.includes('Failed to fetch')) {
-                    console.error('❌ Erro ao chamar OpenAI: Erro de rede (Failed to fetch). Verifique sua conexão com a internet.');
+                    console.error('❌ Erro ao gerar mensagem para solicitar telefone: Erro de rede após 3 tentativas. Verifique sua conexão com a internet.');
                 } else {
-                    console.error('❌ Erro ao chamar OpenAI:', fetchError);
+                    console.error('❌ Erro ao gerar mensagem para solicitar telefone:', fetchError);
                 }
             }
         } catch (error) {
