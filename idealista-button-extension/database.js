@@ -73,6 +73,89 @@ function detectLeadSourceId(url) {
 }
 
 /**
+ * Obtém o ID do agente logado
+ * @returns {Promise<string|null>} ID do agente ou null se não estiver logado
+ */
+async function getLoggedAgentId() {
+    return new Promise((resolve) => {
+        // Tenta acessar chrome.storage diretamente (funciona em popup e background)
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+            try {
+                chrome.storage.local.get(['agent_login'], (result) => {
+                    if (chrome.runtime && chrome.runtime.lastError) {
+                        console.error('❌ Erro ao acessar chrome.storage:', chrome.runtime.lastError);
+                        // Tenta usar background script como fallback
+                        tryBackgroundScript(resolve);
+                        return;
+                    }
+                    
+                    if (result.agent_login && result.agent_login.id) {
+                        // Log removido para reduzir ruído (só loga na primeira vez ou em caso de erro)
+                        resolve(result.agent_login.id);
+                    } else {
+                        console.warn('⚠️ Agente não está logado ou agent_login não encontrado no storage');
+                        console.log('📦 Conteúdo do storage:', result);
+                        resolve(null);
+                    }
+                });
+            } catch (error) {
+                // Verifica se é erro de contexto inválido (extensão recarregada)
+                if (error.message && error.message.includes('Extension context invalidated')) {
+                    // Contexto inválido, não tenta mais
+                    resolve(null);
+                    return;
+                }
+                console.error('❌ Erro ao obter agent_id do storage:', error);
+                // Tenta usar background script como fallback apenas se não for contexto inválido
+                tryBackgroundScript(resolve);
+            }
+        } else {
+            // Se não tem acesso direto ao storage, tenta usar background script
+            console.log('⚠️ chrome.storage não disponível diretamente, tentando background script...');
+            tryBackgroundScript(resolve);
+        }
+    });
+}
+
+/**
+ * Tenta obter agent_id através do background script
+ */
+function tryBackgroundScript(resolve) {
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+        console.error('❌ chrome.runtime.sendMessage não está disponível');
+        resolve(null);
+        return;
+    }
+    
+    try {
+        chrome.runtime.sendMessage({ action: 'getAgentId' }, (response) => {
+            if (chrome.runtime.lastError) {
+                // Verifica se é erro de contexto inválido
+                if (chrome.runtime.lastError.message && chrome.runtime.lastError.message.includes('Extension context invalidated')) {
+                    // Contexto inválido, não loga erro repetitivo
+                    resolve(null);
+                    return;
+                }
+                console.error('❌ Erro ao comunicar com background script:', chrome.runtime.lastError);
+                resolve(null);
+                return;
+            }
+            
+            if (response && response.success && response.agentId) {
+                // Log removido para reduzir ruído
+                resolve(response.agentId);
+            } else {
+                console.warn('⚠️ Background script não retornou agent_id:', response);
+                resolve(null);
+            }
+        });
+    } catch (error) {
+        console.error('❌ Erro ao solicitar agent_id do background script:', error);
+        resolve(null);
+    }
+}
+
+/**
  * Estrutura de dados de uma conversa
  */
 class Conversation {
@@ -96,11 +179,13 @@ class Conversation {
         this.isLead = data.isLead !== undefined ? data.isLead : null; // NULL até que seja possível determinar
         this.agentIaPhoneRequested = data.agentIaPhoneRequested || false; // Indica se Agente IA já solicitou telefone
         this.prefersPhoneCall = data.prefersPhoneCall || false; // Indica se cliente prefere ligação ao invés de WhatsApp
+        this.agentId = data.agentId || null; // ID do agente (obrigatório para chave composta)
     }
 
     toJSON() {
         return {
             conversationId: this.conversationId,
+            agentId: this.agentId,
             userName: this.userName,
             phoneNumber: this.phoneNumber,
             lastMessage: this.lastMessage,
@@ -157,6 +242,16 @@ class ChatMessage {
  */
 async function saveConversation(conversation) {
     try {
+        // Obtém o agent_id do agente logado se não estiver definido
+        if (!conversation.agentId) {
+            conversation.agentId = await getLoggedAgentId();
+            if (!conversation.agentId) {
+                console.error('❌ Agente não está logado. Não é possível salvar a conversa.');
+                console.error('💡 Por favor, faça login na extensão antes de usar o monitoramento.');
+                return false;
+            }
+        }
+        
         const data = conversation.toJSON();
         
         if (DB_CONFIG.mode === 'rest') {
@@ -214,14 +309,20 @@ async function saveToSupabase(data) {
     }
 
     try {
+        // Verifica se agent_id está presente
+        if (!data.agentId) {
+            console.error('❌ agent_id é obrigatório para salvar conversa');
+            return false;
+        }
+        
         const url = `${DB_CONFIG.supabase.url}/rest/v1/conversations`;
         
-        // VERIFICA SE A CONVERSA JÁ EXISTE ANTES DE SALVAR
-        const exists = await conversationExistsInSupabase(data.conversationId);
+        // VERIFICA SE A CONVERSA JÁ EXISTE ANTES DE SALVAR (usando chave composta)
+        const exists = await conversationExistsInSupabase(data.agentId, data.conversationId);
         
         if (exists) {
-            // Busca a conversa existente
-            const getUrl = `${DB_CONFIG.supabase.url}/rest/v1/conversations?conversation_id=eq.${encodeURIComponent(data.conversationId)}&select=*&limit=1`;
+            // Busca a conversa existente usando chave composta
+            const getUrl = `${DB_CONFIG.supabase.url}/rest/v1/conversations?agent_id=eq.${encodeURIComponent(data.agentId)}&conversation_id=eq.${encodeURIComponent(data.conversationId)}&select=*&limit=1`;
             const getResponse = await fetch(getUrl, {
                 method: 'GET',
                 headers: {
@@ -256,7 +357,7 @@ async function saveToSupabase(data) {
                     // Se existe mas não tem phoneNumber e agora temos, atualiza apenas o phoneNumber
                     if (hasNewPhone && !hasExistingPhone) {
                         console.log('📞 Conversa existe mas sem phoneNumber, atualizando apenas phoneNumber:', data.conversationId);
-                        return await updateConversationInSupabase(data.conversationId, { phoneNumber: data.phoneNumber });
+                        return await updateConversationInSupabase(data.agentId, data.conversationId, { phoneNumber: data.phoneNumber });
                     }
                     
                     // Se existe mas não tem phoneNumber e o novo também está vazio, não atualiza
@@ -269,14 +370,29 @@ async function saveToSupabase(data) {
         }
         
         // Se não existe, cria nova conversa
-        console.log('🔥 Criando nova conversa no Supabase:', {
-            conversationId: data.conversationId,
-            userName: data.userName,
-            hasPhoneNumber: !!(data.phoneNumber && data.phoneNumber.trim())
-        });
+        // Log removido para reduzir ruído (só loga em caso de erro)
+        
+        // Verifica novamente se agent_id está presente antes de criar supabaseData
+        if (!data.agentId) {
+            console.error('❌ agent_id está ausente nos dados. Tentando obter novamente...');
+            const retryAgentId = await getLoggedAgentId();
+            if (!retryAgentId) {
+                console.error('❌ Não foi possível obter agent_id. A conversa não será salva.');
+                return false;
+            }
+            data.agentId = retryAgentId;
+        }
         
         // Prepara dados para Supabase (converte nomes de campos para snake_case)
+        // Garante que agent_id está presente
+        if (!data.agentId) {
+            console.error('❌ ERRO CRÍTICO: agent_id está ausente nos dados da conversa');
+            console.error('💡 Por favor, faça login na extensão clicando no ícone da extensão e fazendo login.');
+            return false;
+        }
+        
         const supabaseData = {
+            agent_id: data.agentId,
             conversation_id: data.conversationId,
             user_name: data.userName || '',
             phone_number: data.phoneNumber && data.phoneNumber.trim() ? data.phoneNumber.trim() : null,
@@ -343,7 +459,7 @@ async function saveToSupabase(data) {
                                 // Só atualiza se não tiver phoneNumber existente
                                 if (!hasExistingPhone) {
                                     console.log('📞 Conversa já existe sem phoneNumber, atualizando phoneNumber:', data.conversationId);
-                                    return await updateConversationInSupabase(data.conversationId, { phoneNumber: data.phoneNumber });
+                                    return await updateConversationInSupabase(data.agentId, data.conversationId, { phoneNumber: data.phoneNumber });
                                 } else {
                                     console.log('ℹ️ Conversa já existe no Supabase (phoneNumber protegido):', data.conversationId);
                                     return true;
@@ -467,6 +583,13 @@ async function saveMessagesToSupabase(messages) {
             return false;
         }
 
+        // Obtém o agent_id do agente logado
+        const agentId = await getLoggedAgentId();
+        if (!agentId) {
+            console.error('❌ Agente não está logado. Não é possível salvar mensagens.');
+            return false;
+        }
+
         let savedCount = 0;
         let skippedCount = 0;
 
@@ -520,6 +643,7 @@ async function saveMessagesToSupabase(messages) {
             // Prepara dados para Supabase (snake_case)
             const supabaseData = {
                 message_id: messageId,
+                agent_id: agentId,
                 conversation_id: message.conversationId,
                 content: message.content || '',
                 timestamp: convertToSupabaseTimestamp(message.timestamp),
@@ -622,9 +746,9 @@ async function saveMessagesToSupabase(messages) {
             }
             
             // Atualiza a conversa com o timestamp da mensagem mais recente
-            if (latestMessage.timestamp) {
+            if (latestMessage.timestamp && agentId) {
                 try {
-                    await updateConversationInSupabase(conversationId, {
+                    await updateConversationInSupabase(agentId, conversationId, {
                         lastMessageDate: latestMessage.timestamp
                     });
                     console.log('✅ last_message_date atualizado com timestamp da mensagem mais recente:', latestMessage.timestamp);
@@ -680,16 +804,25 @@ async function saveChatMessages(messages) {
  * Atualiza uma conversa existente (atualiza apenas campos específicos)
  * @param {string} conversationId - ID da conversa
  * @param {Object} updates - Campos para atualizar (ex: { phoneNumber: '...', lastMessage: '...' })
+ * @param {string} agentId - ID do agente (opcional, será obtido do agente logado se não fornecido)
  * @returns {Promise<boolean>} Se foi atualizado com sucesso
  */
-async function updateConversation(conversationId, updates) {
+async function updateConversation(conversationId, updates, agentId = null) {
     if (!conversationId || !updates || Object.keys(updates).length === 0) {
         return false;
     }
 
     try {
         if (DB_CONFIG.mode === 'supabase') {
-            return await updateConversationInSupabase(conversationId, updates);
+            // Se agentId não foi fornecido, tenta obter do agente logado
+            if (!agentId) {
+                agentId = await getLoggedAgentId();
+                if (!agentId) {
+                    console.error('❌ Agente não está logado. Não é possível atualizar a conversa.');
+                    return false;
+                }
+            }
+            return await updateConversationInSupabase(agentId, conversationId, updates);
         } else if (DB_CONFIG.mode === 'rest') {
             console.warn('⚠️ Modo REST não suporta atualização de conversas. Use Supabase.');
             return false;
@@ -706,21 +839,31 @@ async function updateConversation(conversationId, updates) {
 /**
  * Atualiza conversa no Supabase
  */
-async function updateConversationInSupabase(conversationId, updates) {
+async function updateConversationInSupabase(agentId, conversationId, updates) {
     if (!DB_CONFIG.supabase.url || DB_CONFIG.supabase.url.includes('SEU_PROJECT_ID') || !DB_CONFIG.supabase.anonKey || DB_CONFIG.supabase.anonKey.includes('SUA_ANON_KEY')) {
         console.error('❌ Supabase não configurado. Configure DB_CONFIG.supabase.url e DB_CONFIG.supabase.anonKey');
         return false;
     }
 
+    // Se agentId não foi fornecido, tenta obter do agente logado
+    if (!agentId) {
+        agentId = await getLoggedAgentId();
+        if (!agentId) {
+            console.error('❌ agent_id é obrigatório para atualizar conversa');
+            return false;
+        }
+    }
+
     try {
-        const url = `${DB_CONFIG.supabase.url}/rest/v1/conversations?conversation_id=eq.${encodeURIComponent(conversationId)}`;
+        // Usa chave composta para buscar e atualizar
+        const url = `${DB_CONFIG.supabase.url}/rest/v1/conversations?agent_id=eq.${encodeURIComponent(agentId)}&conversation_id=eq.${encodeURIComponent(conversationId)}`;
         
         // Primeiro, busca o documento atual para verificar campos existentes
         let currentPhoneNumber = null;
         let currentUserName = null;
         let currentData = null;
         try {
-            const getResponse = await fetch(`${DB_CONFIG.supabase.url}/rest/v1/conversations?conversation_id=eq.${encodeURIComponent(conversationId)}&select=*&limit=1`, {
+            const getResponse = await fetch(`${DB_CONFIG.supabase.url}/rest/v1/conversations?agent_id=eq.${encodeURIComponent(agentId)}&conversation_id=eq.${encodeURIComponent(conversationId)}&select=*&limit=1`, {
                 method: 'GET',
                 headers: {
                     'apikey': DB_CONFIG.supabase.anonKey,
@@ -943,18 +1086,24 @@ async function updateConversationInSupabase(conversationId, updates) {
 
 
 /**
- * Verifica se uma conversa já existe no Supabase
+ * Verifica se uma conversa já existe no Supabase (usando chave composta)
+ * @param {string} agentId - ID do agente
  * @param {string} conversationId - ID da conversa
  * @returns {Promise<boolean>} Se existe
  */
-async function conversationExistsInSupabase(conversationId) {
+async function conversationExistsInSupabase(agentId, conversationId) {
     if (!DB_CONFIG.supabase.url || DB_CONFIG.supabase.url.includes('SEU_PROJECT_ID')) {
         console.error('❌ Supabase não configurado. Configure DB_CONFIG.supabase.url');
         return false;
     }
     
+    if (!agentId) {
+        console.error('❌ agent_id é obrigatório para verificar existência da conversa');
+        return false;
+    }
+    
     try {
-        const url = `${DB_CONFIG.supabase.url}/rest/v1/conversations?conversation_id=eq.${encodeURIComponent(conversationId)}&select=conversation_id&limit=1`;
+        const url = `${DB_CONFIG.supabase.url}/rest/v1/conversations?agent_id=eq.${encodeURIComponent(agentId)}&conversation_id=eq.${encodeURIComponent(conversationId)}&select=conversation_id&limit=1`;
         const response = await fetch(url, {
             method: 'GET',
             headers: {
@@ -981,11 +1130,20 @@ async function conversationExistsInSupabase(conversationId) {
 /**
  * Verifica se uma conversa já existe (compatibilidade)
  * @param {string} conversationId - ID da conversa
+ * @param {string} agentId - ID do agente (opcional, será obtido do agente logado se não fornecido)
  * @returns {Promise<boolean>} Se existe
  */
-async function conversationExists(conversationId) {
+async function conversationExists(conversationId, agentId = null) {
     if (DB_CONFIG.mode === 'supabase') {
-        return await conversationExistsInSupabase(conversationId);
+        // Se agentId não foi fornecido, tenta obter do agente logado
+        if (!agentId) {
+            agentId = await getLoggedAgentId();
+            if (!agentId) {
+                console.warn('⚠️ Agente não está logado. Não é possível verificar existência da conversa.');
+                return false;
+            }
+        }
+        return await conversationExistsInSupabase(agentId, conversationId);
     } else if (DB_CONFIG.mode === 'rest') {
         console.warn('⚠️ Modo REST não suporta verificação de existência. Use Supabase.');
         return false;

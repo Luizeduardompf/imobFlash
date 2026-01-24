@@ -69,6 +69,10 @@
     // SELEÇÃO DE ELEMENTOS DOM
     // ============================================================================
 
+    // Flag para evitar logs repetitivos sobre botão de telefone não encontrado
+    let lastPhoneButtonLogConversationId = null;
+    let phoneButtonNotFoundLogged = false;
+    
     /**
      * Encontra o botão de telefone no header da conversa
      * @returns {HTMLElement|null} Botão de telefone ou null se não encontrado
@@ -80,6 +84,8 @@
             // Não loga - é normal não ter header quando não há conversa aberta
             return null;
         }
+        
+        const currentConversationId = getCurrentConversationId();
 
         // 1. Busca no header da conversa
         let buttons = header.querySelectorAll('button[aria-label*="telefone" i], button[aria-label*="phone" i]');
@@ -121,7 +127,12 @@
             }
         }
         
-        console.log('⚠️ Botão de telefone não encontrado no header');
+        // Só loga uma vez por conversa para evitar spam de logs
+        if (currentConversationId !== lastPhoneButtonLogConversationId || !phoneButtonNotFoundLogged) {
+            // Log removido para reduzir ruído - é normal não ter botão se não houver número
+            lastPhoneButtonLogConversationId = currentConversationId;
+            phoneButtonNotFoundLogged = true;
+        }
         return null;
     }
 
@@ -543,8 +554,7 @@
         
         const phoneButton = findPhoneButton();
         if (!phoneButton) {
-            console.log('ℹ️ Botão de telefone não encontrado - isso é normal se a conversa não tiver número disponível');
-            // Não é um erro crítico, apenas log informativo
+            // Log removido para reduzir ruído - é normal não ter botão se não houver número
             return;
         }
 
@@ -718,7 +728,7 @@
                     console.warn('⚠️ Falha ao atualizar phoneNumber no Supabase:', conversationId);
                 }
             } else if (!phoneNumber) {
-                console.log('ℹ️ PhoneNumber ainda não disponível para:', conversationId);
+                // Log removido para reduzir ruído - é normal não ter número disponível imediatamente
             }
         } catch (error) {
             console.error('❌ Erro ao atualizar phoneNumber no banco de dados:', error);
@@ -859,6 +869,7 @@
 
     let monitoredConversations = new Set(); // IDs de conversas já monitoradas
     let reloadTimeout = null;
+    let reloadScheduledTime = null; // Timestamp quando o refresh foi agendado
     let unreadClickTimeout = null; // Timeout para clique em mensagens não lidas
     let isProcessingUnread = false; // Flag para evitar múltiplos processamentos
     let processedUnreadConversations = new Set(); // Conversas não lidas já processadas nesta sessão
@@ -1078,6 +1089,13 @@
      * @param {HTMLElement} conversationElement - Elemento da conversa
      */
     async function processAndSaveConversation(conversationElement) {
+        // Verifica se o agente está logado antes de processar
+        const isLoggedIn = await checkAgentLoggedIn();
+        if (!isLoggedIn) {
+            console.warn('⚠️ Agente não está logado. Não é possível processar conversa.');
+            return;
+        }
+        
         const data = extractConversationData(conversationElement);
         if (!data || !data.conversationId) return;
 
@@ -1138,7 +1156,14 @@
     /**
      * Monitora todas as conversas na lista
      */
-    function monitorConversationsList() {
+    async function monitorConversationsList() {
+        // Verifica se o agente está logado antes de processar
+        const isLoggedIn = await checkAgentLoggedIn();
+        if (!isLoggedIn) {
+            console.warn('⚠️ Agente não está logado. Não é possível monitorar conversas.');
+            return;
+        }
+        
         // Se o AI está trabalhando, ignora verificação de novas conversas
         if (isAIWorking) {
             console.log('⏸️ AI está trabalhando, ignorando verificação de novas conversas...');
@@ -1161,10 +1186,10 @@
             const conversationItems = document.querySelectorAll('li[data-conversation-id]');
             if (conversationItems.length > 0) {
                 console.log('ℹ️ Usando fallback: processando', conversationItems.length, 'conversas encontradas diretamente');
-                conversationItems.forEach((item) => {
+                conversationItems.forEach(async (item) => {
                     const conversationId = item.getAttribute('data-conversation-id');
                     if (conversationId && !monitoredConversations.has(conversationId)) {
-                        processAndSaveConversation(item);
+                        await processAndSaveConversation(item);
                     }
                 });
             }
@@ -1174,10 +1199,10 @@
         // Busca todos os li dentro da lista
         const conversationItems = conversationsList.querySelectorAll('li[data-conversation-id]');
         
-        conversationItems.forEach((item) => {
+        conversationItems.forEach(async (item) => {
             const conversationId = item.getAttribute('data-conversation-id');
             if (conversationId && !monitoredConversations.has(conversationId)) {
-                processAndSaveConversation(item);
+                await processAndSaveConversation(item);
             }
         });
     }
@@ -1186,7 +1211,7 @@
      * Observer para monitorar novas conversas na lista
      * Detecta quando novos <li> são adicionados ao <ul>
      */
-    const conversationsListObserver = new MutationObserver((mutations) => {
+    const conversationsListObserver = new MutationObserver(async (mutations) => {
         // Se o AI está trabalhando, ignora mudanças na lista
         if (isAIWorking) {
             console.log('⏸️ AI está trabalhando, ignorando mudanças na lista de conversas...');
@@ -1194,7 +1219,7 @@
         }
         
         mutations.forEach((mutation) => {
-            mutation.addedNodes.forEach((node) => {
+            mutation.addedNodes.forEach(async (node) => {
                 // Verifica se é um elemento <li> com data-conversation-id
                 if (node.nodeType === 1) { // Element node
                     // Verifica se o próprio nó é um <li>
@@ -1202,17 +1227,17 @@
                         const conversationId = node.getAttribute('data-conversation-id');
                         if (conversationId && !monitoredConversations.has(conversationId)) {
                             console.log('🆕 Novo <li> detectado:', conversationId);
-                            processAndSaveConversation(node);
+                            await processAndSaveConversation(node);
                         }
                     }
                     // Verifica filhos <li> dentro do nó adicionado
                     const liChildren = node.querySelectorAll?.('li[data-conversation-id]');
                     if (liChildren && liChildren.length > 0) {
-                        liChildren.forEach((li) => {
+                        liChildren.forEach(async (li) => {
                             const conversationId = li.getAttribute('data-conversation-id');
                             if (conversationId && !monitoredConversations.has(conversationId)) {
                                 console.log('🆕 Novo <li> filho detectado:', conversationId);
-                                processAndSaveConversation(li);
+                                await processAndSaveConversation(li);
                             }
                         });
                     }
@@ -2907,6 +2932,10 @@
                 processUnreadConversations();
             } else {
                 console.log('✅ Todas as conversas não lidas foram processadas');
+                // Garante que o refresh automático continue agendado mesmo após processar todas as conversas
+                setupRandomReload().catch(err => {
+                    console.error('❌ Erro ao reagendar reload após processar conversas:', err);
+                });
             }
         }, 3000);
     }
@@ -2921,14 +2950,16 @@
         }
 
         // Verifica se reload automático está ativado
+        // IMPORTANTE: Sempre agenda refresh para garantir que novas mensagens sejam detectadas
+        // mesmo se a configuração estiver desativada (o site precisa de refresh para mostrar novas mensagens)
         if (!generalSettings || !generalSettings.auto_reload_enabled) {
-            console.log('ℹ️ Reload automático está desativado nas configurações');
-            return;
+            console.log('⚠️ Reload automático está desativado nas configurações, mas será ativado automaticamente para garantir detecção de novas mensagens');
         }
 
         // Limpa timeout anterior se existir
         if (reloadTimeout) {
             clearTimeout(reloadTimeout);
+            reloadTimeout = null;
         }
 
         // Usa valores das configurações ou padrões
@@ -2938,13 +2969,152 @@
         // Gera tempo aleatório entre min e max minutos (em milissegundos)
         const randomMinutes = Math.floor(Math.random() * (maxMinutes - minMinutes + 1)) + minMinutes;
         const randomMs = randomMinutes * 60 * 1000;
+        
+        // Armazena o timestamp do refresh agendado
+        reloadScheduledTime = Date.now() + randomMs;
 
-        console.log(`🔄 Reload agendado em ${randomMinutes} minutos (intervalo: ${minMinutes}-${maxMinutes} minutos)`);
+        // Calcula quando será o próximo refresh
+        const nextRefreshDate = new Date(Date.now() + randomMs);
+        const nextRefreshTime = nextRefreshDate.toLocaleTimeString('pt-BR', { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit' 
+        });
+
+        // Logs detalhados sobre o refresh agendado
+        const reloadMessage = `🔄 Reload agendado em ${randomMinutes} minutos (intervalo: ${minMinutes}-${maxMinutes} minutos)`;
+        const nextRefreshMessage = `⏰ Próximo refresh será às ${nextRefreshTime} (em ${Math.round(randomMs / 1000 / 60)} minutos)`;
+        
+        // Logs imediatos
+        console.log(reloadMessage);
+        console.log(nextRefreshMessage);
+        
+        // Força exibição no overlay após delays para garantir que apareça
+        setTimeout(() => {
+            console.log('📅 INFORMAÇÃO DE REFRESH:');
+            console.log(reloadMessage);
+            console.log(nextRefreshMessage);
+        }, 1000);
+        
+        setTimeout(() => {
+            console.log('📅 INFORMAÇÃO DE REFRESH (confirmação):');
+            console.log(reloadMessage);
+            console.log(nextRefreshMessage);
+        }, 3000);
+        
+        setTimeout(() => {
+            console.log('📅 INFORMAÇÃO DE REFRESH (confirmação final):');
+            console.log(reloadMessage);
+            console.log(nextRefreshMessage);
+        }, 6000);
 
         reloadTimeout = setTimeout(() => {
-            console.log('🔄 Recarregando página...');
+            console.log('🔄 Executando refresh automático agendado...');
+            reloadScheduledTime = null; // Limpa o timestamp
             window.location.reload();
         }, randomMs);
+        
+        // Inicia atualização do countdown
+        startCountdownUpdate();
+    }
+    
+    /**
+     * Atualiza o countdown periodicamente
+     */
+    function startCountdownUpdate() {
+        // Limpa intervalo anterior se existir
+        if (window.countdownUpdateInterval) {
+            clearInterval(window.countdownUpdateInterval);
+        }
+        
+        // Atualiza o countdown a cada segundo
+        window.countdownUpdateInterval = setInterval(() => {
+            if (reloadScheduledTime) {
+                const now = Date.now();
+                const remaining = Math.max(0, Math.floor((reloadScheduledTime - now) / 1000));
+                
+                // Armazena no window global para o overlay.js ler
+                window.imobflashRefreshTimeRemaining = remaining;
+                
+                // Atualiza diretamente no DOM (mais confiável que depender da função do overlay)
+                const countdownTimeEl = document.getElementById('imobflash-countdown-time');
+                if (countdownTimeEl) {
+                    const minutes = Math.floor(remaining / 60);
+                    const seconds = remaining % 60;
+                    countdownTimeEl.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                } else {
+                    // Se o elemento ainda não existe, tenta novamente após um pequeno delay
+                    setTimeout(() => {
+                        const el = document.getElementById('imobflash-countdown-time');
+                        if (el && reloadScheduledTime) {
+                            const now = Date.now();
+                            const rem = Math.max(0, Math.floor((reloadScheduledTime - now) / 1000));
+                            const mins = Math.floor(rem / 60);
+                            const secs = rem % 60;
+                            el.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                        }
+                    }, 500);
+                }
+                
+                // Também tenta chamar a função do overlay se existir
+                if (window.updateRefreshCountdown) {
+                    try {
+                        window.updateRefreshCountdown(remaining);
+                    } catch (e) {
+                        // Ignora erros
+                    }
+                }
+                
+                // Se chegou a zero, para o intervalo
+                if (remaining <= 0) {
+                    clearInterval(window.countdownUpdateInterval);
+                    window.countdownUpdateInterval = null;
+                    window.imobflashRefreshTimeRemaining = null;
+                }
+            } else {
+                // Se não há refresh agendado, mostra "--:--"
+                window.imobflashRefreshTimeRemaining = null;
+                
+                const countdownTimeEl = document.getElementById('imobflash-countdown-time');
+                if (countdownTimeEl) {
+                    countdownTimeEl.textContent = '--:--';
+                }
+                
+                if (window.updateRefreshCountdown) {
+                    try {
+                        window.updateRefreshCountdown(null);
+                    } catch (e) {
+                        // Ignora erros
+                    }
+                }
+            }
+        }, 1000); // Atualiza a cada segundo
+        
+        // Atualiza imediatamente também (com retry se o elemento ainda não existir)
+        const updateCountdownNow = () => {
+            if (reloadScheduledTime) {
+                const now = Date.now();
+                const remaining = Math.max(0, Math.floor((reloadScheduledTime - now) / 1000));
+                window.imobflashRefreshTimeRemaining = remaining;
+                
+                const countdownTimeEl = document.getElementById('imobflash-countdown-time');
+                if (countdownTimeEl) {
+                    const minutes = Math.floor(remaining / 60);
+                    const seconds = remaining % 60;
+                    countdownTimeEl.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                    console.log(`⏱️ Countdown atualizado: ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+                } else {
+                    // Se o elemento ainda não existe, tenta novamente após um delay
+                    setTimeout(updateCountdownNow, 1000);
+                }
+            }
+        };
+        
+        // Tenta atualizar imediatamente
+        updateCountdownNow();
+        
+        // Também tenta após 2 segundos (caso o overlay ainda esteja sendo injetado)
+        setTimeout(updateCountdownNow, 2000);
     }
     
     /**
@@ -2974,9 +3144,47 @@
     // ============================================================================
 
     /**
+     * Verifica se o agente está logado
+     * @returns {Promise<boolean>}
+     */
+    async function checkAgentLoggedIn() {
+        return new Promise((resolve) => {
+            if (typeof chrome === 'undefined' || !chrome.storage) {
+                resolve(false);
+                return;
+            }
+            
+            try {
+                chrome.storage.local.get(['agent_login'], (result) => {
+                    if (chrome.runtime && chrome.runtime.lastError) {
+                        resolve(false);
+                        return;
+                    }
+                    
+                    const isLoggedIn = !!(result.agent_login && result.agent_login.id);
+                    resolve(isLoggedIn);
+                });
+            } catch (error) {
+                resolve(false);
+            }
+        });
+    }
+    
+    /**
      * Inicializa a extensão
      */
-    function init() {
+    async function init() {
+        // Verifica se o agente está logado antes de iniciar
+        const isLoggedIn = await checkAgentLoggedIn();
+        
+        if (!isLoggedIn) {
+            console.warn('⚠️ Agente não está logado. O monitoramento não será iniciado.');
+            console.warn('💡 Por favor, faça login na extensão clicando no ícone da extensão.');
+            return; // Não inicia o monitoramento se não estiver logado
+        }
+        
+        console.log('✅ Agente logado, iniciando monitoramento...');
+        
         // Processa conversa atual
         setTimeout(processConversation, 1500);
 
@@ -3044,8 +3252,24 @@
             return null;
         }
         
+        // Flag para garantir que o processamento de conversas existentes só aconteça uma vez
+        let hasProcessedExistingConversations = false;
+        let isMonitoringSetup = false;
+        
         // Função para configurar monitoramento da lista
-        function setupConversationsListMonitoring() {
+        async function setupConversationsListMonitoring() {
+            // Se já está configurado, não configura novamente
+            if (isMonitoringSetup) {
+                return true;
+            }
+            
+            // Verifica se o agente está logado antes de configurar monitoramento
+            const isLoggedIn = await checkAgentLoggedIn();
+            if (!isLoggedIn) {
+                console.warn('⚠️ Agente não está logado. Monitoramento não será configurado.');
+                return false;
+            }
+            
             const conversationsList = findConversationsList();
             
             if (conversationsList) {
@@ -3059,15 +3283,21 @@
                     characterData: false  // Não monitora mudanças de texto
                 });
                 
+                // Marca como configurado
+                isMonitoringSetup = true;
+                
                 // Processa conversas existentes após um delay (apenas uma vez na inicialização)
-                setTimeout(() => {
-                    if (!isAIWorking) {
-                        console.log('🔍 Processando conversas existentes...');
-                        monitorConversationsList();
-                    } else {
-                        console.log('⏸️ AI está trabalhando, ignorando processamento de conversas existentes...');
-                    }
-                }, 2000);
+                if (!hasProcessedExistingConversations) {
+                    hasProcessedExistingConversations = true;
+                    setTimeout(async () => {
+                        if (!isAIWorking) {
+                            console.log('🔍 Processando conversas existentes...');
+                            await monitorConversationsList();
+                        } else {
+                            console.log('⏸️ AI está trabalhando, ignorando processamento de conversas existentes...');
+                        }
+                    }, 2000);
+                }
                 
                 return true;
             }
@@ -3076,18 +3306,18 @@
         }
         
         // Aguarda um pouco antes de tentar configurar (para garantir que a página carregou)
-        setTimeout(() => {
+        setTimeout(async () => {
             // Tenta configurar imediatamente
-            if (!setupConversationsListMonitoring()) {
+            if (!(await setupConversationsListMonitoring())) {
                 // Tenta múltiplas vezes com intervalos
                 let attempts = 0;
                 const maxAttempts = 15; // Aumentado para 15 tentativas
                 const retryInterval = 2000; // 2 segundos
                 
-                const retrySetup = setInterval(() => {
+                const retrySetup = setInterval(async () => {
                     attempts++;
                     
-                    if (setupConversationsListMonitoring()) {
+                    if (await setupConversationsListMonitoring()) {
                         clearInterval(retrySetup);
                         console.log('✅ Lista de conversas encontrada e monitoramento configurado!');
                     } else if (attempts >= maxAttempts) {
@@ -3095,7 +3325,7 @@
                         console.log('ℹ️ Lista de conversas não encontrada após', maxAttempts, 'tentativas, usando fallback...');
                         
                         // Fallback: monitora diretamente os elementos li
-                        const fallbackObserver = new MutationObserver(() => {
+                        const fallbackObserver = new MutationObserver(async () => {
                             if (!isAIWorking) {
                                 // Tenta encontrar a lista novamente
                                 const list = findConversationsList();
@@ -3109,7 +3339,7 @@
                                     });
                                     console.log('✅ Lista encontrada via fallback, configurando observer principal');
                                 }
-                                monitorConversationsList();
+                                await monitorConversationsList();
                             }
                         });
                         
@@ -3120,9 +3350,9 @@
                         });
                         
                         // Processa conversas existentes periodicamente via fallback
-                        setInterval(() => {
+                        setInterval(async () => {
                             if (!isAIWorking) {
-                                monitorConversationsList();
+                                await monitorConversationsList();
                             }
                         }, 5000); // A cada 5 segundos
                     }
@@ -3130,10 +3360,26 @@
             }
         }, 3000); // Aguarda 3 segundos antes de começar
         
-        // Configura reload aleatório (async)
-        setupRandomReload().catch(err => {
-            console.error('❌ Erro ao configurar reload:', err);
-        });
+        // Configura reload aleatório (async) - aguarda um pouco mais para garantir que o overlay está pronto
+        setTimeout(() => {
+            setupRandomReload().catch(err => {
+                console.error('❌ Erro ao configurar reload:', err);
+            });
+        }, 5000); // Aguarda 5 segundos para garantir que o overlay está pronto
+        
+        // Verificação periódica para garantir que o refresh continue agendado
+        // (a cada 2 minutos, verifica se há um refresh agendado, se não houver, agenda um novo)
+        setInterval(() => {
+            if (!reloadTimeout) {
+                console.log('⚠️ Nenhum refresh agendado detectado. Reagendando...');
+                setupRandomReload().catch(err => {
+                    console.error('❌ Erro ao reagendar reload:', err);
+                });
+            } else {
+                // Log informativo de que o refresh está agendado (a cada verificação)
+                console.log('✅ Refresh automático está agendado e ativo');
+            }
+        }, 2 * 60 * 1000); // A cada 2 minutos
         
         // Configura listeners para cliques
         setupMessageClickListeners();

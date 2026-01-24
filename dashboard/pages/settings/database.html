@@ -42,6 +42,14 @@
                     <span class="subnav-icon">🏠</span>
                     <span class="subnav-text">Origens</span>
                 </a>
+                <a href="agentes.html" class="subnav-item">
+                    <span class="subnav-icon">👤</span>
+                    <span class="subnav-text">Agentes</span>
+                </a>
+                <a href="paises-cidades.html" class="subnav-item">
+                    <span class="subnav-icon">🌍</span>
+                    <span class="subnav-text">Países e Cidades</span>
+                </a>
                 <a href="agente-ia.html" class="subnav-item">
                     <span class="subnav-icon">🤖</span>
                     <span class="subnav-text">Agente IA</span>
@@ -89,11 +97,24 @@
                             </div>
                         </div>
 
+                        <!-- Limpar Todas as Conversas e Mensagens -->
+                        <div class="settings-card danger-card">
+                            <div class="settings-card-header">
+                                <h4>🗑️ Limpar Todas as Conversas e Mensagens</h4>
+                                <p class="danger-text">Esta ação irá deletar TODAS as conversas e mensagens, mas manterá outras tabelas (agentes, países, cidades, etc.). Esta ação não pode ser desfeita!</p>
+                            </div>
+                            <div class="settings-card-body">
+                                <button class="btn btn-danger btn-large" onclick="deleteAllConversationsAndMessages()">
+                                    🗑️ Deletar Todas as Conversas e Mensagens
+                                </button>
+                            </div>
+                        </div>
+
                         <!-- Limpar Todo o Banco -->
                         <div class="settings-card danger-card">
                             <div class="settings-card-header">
                                 <h4>⚠️ Limpar Todo o Banco de Dados</h4>
-                                <p class="danger-text">Esta ação irá deletar TODAS as conversas e mensagens. Esta ação não pode ser desfeita!</p>
+                                <p class="danger-text">Esta ação irá deletar TODOS os dados do sistema (conversas, mensagens, agentes, países, cidades, etc.). Esta ação não pode ser desfeita!</p>
                             </div>
                             <div class="settings-card-body">
                                 <button class="btn btn-danger btn-large" onclick="deleteAllData()">

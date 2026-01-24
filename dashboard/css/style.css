@@ -806,6 +806,99 @@ body {
     gap: 8px;
 }
 
+/* Estilos para Agentes */
+.agents-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.agent-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 20px;
+    background: var(--dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.agent-item:hover {
+    border-color: var(--primary);
+    background: var(--bg-card);
+}
+
+.agent-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.agent-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.agent-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.agent-status {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-active {
+    background: rgba(16, 185, 129, 0.2);
+    color: var(--success);
+    border: 1px solid var(--success);
+}
+
+.status-inactive {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--danger);
+    border: 1px solid var(--danger);
+}
+
+.status-pending {
+    background: rgba(245, 158, 11, 0.2);
+    color: var(--warning);
+    border: 1px solid var(--warning);
+}
+
+.agent-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.agent-detail {
+    font-size: 14px;
+    color: var(--text-muted);
+}
+
+.agent-detail strong {
+    color: var(--text);
+    margin-right: 4px;
+}
+
+.agent-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
 .btn-icon {
     padding: 8px;
     min-width: auto;
@@ -837,6 +930,14 @@ body {
     max-width: 500px;
     border: 1px solid var(--border);
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+}
+
+/* Modal maior para formulários complexos */
+.modal-content.large {
+    max-width: 700px;
 }
 
 .modal-header {
@@ -845,6 +946,7 @@ body {
     justify-content: space-between;
     padding: 20px 24px;
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
 }
 
 .modal-header h3 {
@@ -875,6 +977,34 @@ body {
 
 .modal-body {
     padding: 24px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Ajusta altura do modal-body quando dentro de modal-content com flex */
+.modal-content .modal-body {
+    max-height: none;
+}
+
+/* Scrollbar customizada para modal */
+.modal-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.modal-body::-webkit-scrollbar-track {
+    background: var(--dark);
+    border-radius: 4px;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+    background: var(--gray);
+    border-radius: 4px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover {
+    background: var(--gray-light);
 }
 
 .form-input {

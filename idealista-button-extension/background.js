@@ -8,6 +8,53 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true; // Indica que vamos responder assincronamente
     }
     
+    // Fecha todas as abas abertas pela extensão
+    if (request.action === 'closeExtensionTabs') {
+        closeAllExtensionTabs()
+            .then(() => sendResponse({ success: true }))
+            .catch(error => sendResponse({ success: false, error: error.message }));
+        return true; // Indica que vamos responder assincronamente
+    }
+    
+    // Retorna o agent_id do agente logado
+    if (request.action === 'getAgentId') {
+        chrome.storage.local.get(['agent_login'], (result) => {
+            if (chrome.runtime.lastError) {
+                sendResponse({ success: false, error: chrome.runtime.lastError.message });
+                return;
+            }
+            
+            if (result.agent_login && result.agent_login.id) {
+                sendResponse({ success: true, agentId: result.agent_login.id });
+            } else {
+                sendResponse({ success: false, error: 'Agente não está logado' });
+            }
+        });
+        return true; // Indica que vamos responder assincronamente
+    }
+    
+    // Retorna lista de abas abertas pela extensão
+    if (request.action === 'getExtensionTabs') {
+        getExtensionTabs()
+            .then(tabIds => {
+                // Busca informações detalhadas das abas
+                chrome.tabs.query({}, (tabs) => {
+                    const extensionTabs = tabs.filter(t => tabIds.includes(t.id));
+                    sendResponse({ 
+                        success: true, 
+                        tabs: extensionTabs.map(t => ({
+                            id: t.id,
+                            url: t.url,
+                            title: t.title,
+                            active: t.active
+                        }))
+                    });
+                });
+            })
+            .catch(error => sendResponse({ success: false, error: error.message }));
+        return true; // Indica que vamos responder assincronamente
+    }
+    
     // Repassa logs para popups abertos (broadcast via storage)
     if (request.type === 'log') {
         // Usa storage como broadcast mechanism
@@ -33,44 +80,101 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 /**
+ * Marca uma aba como aberta pela extensão
+ */
+async function markTabAsExtensionTab(tabId) {
+    try {
+        const result = await chrome.storage.local.get(['extension_tabs']);
+        const extensionTabs = result.extension_tabs || [];
+        
+        if (!extensionTabs.includes(tabId)) {
+            extensionTabs.push(tabId);
+            await chrome.storage.local.set({ extension_tabs: extensionTabs });
+            console.log(`✅ Aba ${tabId} marcada como aberta pela extensão`);
+        }
+    } catch (error) {
+        console.error('Erro ao marcar aba:', error);
+    }
+}
+
+/**
+ * Remove uma aba da lista de abas da extensão
+ */
+async function unmarkTabAsExtensionTab(tabId) {
+    try {
+        const result = await chrome.storage.local.get(['extension_tabs']);
+        let extensionTabs = result.extension_tabs || [];
+        
+        extensionTabs = extensionTabs.filter(id => id !== tabId);
+        await chrome.storage.local.set({ extension_tabs: extensionTabs });
+    } catch (error) {
+        console.error('Erro ao desmarcar aba:', error);
+    }
+}
+
+/**
+ * Obtém todas as abas abertas pela extensão
+ */
+async function getExtensionTabs() {
+    try {
+        const result = await chrome.storage.local.get(['extension_tabs']);
+        return result.extension_tabs || [];
+    } catch (error) {
+        console.error('Erro ao obter abas da extensão:', error);
+        return [];
+    }
+}
+
+/**
  * Abre ou encontra a aba do Idealista e verifica login
  */
 async function handleOpenIdealista(url) {
     try {
-        // Procura se já existe uma aba aberta com o Idealista
-        const tabs = await chrome.tabs.query({ url: 'https://www.idealista.pt/*' });
+        // Primeiro, verifica se já existe uma aba rastreada pela extensão
+        const extensionTabIds = await getExtensionTabs();
         
-        if (tabs.length > 0) {
-            // Se já existe, ativa a aba e verifica se está na página de conversas
-            const tab = tabs[0];
+        if (extensionTabIds.length > 0) {
+            // Verifica se alguma das abas rastreadas ainda existe e é do Idealista
+            const existingTabs = await chrome.tabs.query({});
+            const trackedTabs = existingTabs.filter(t => 
+                extensionTabIds.includes(t.id) && 
+                t.url && 
+                t.url.includes('idealista.pt')
+            );
             
-            // Ativa a aba
-            await chrome.tabs.update(tab.id, { active: true });
-            await chrome.windows.update(tab.windowId, { focused: true });
-            
-            // Verifica se está na página de conversas, se não, navega
-            if (!tab.url.includes('/conversations')) {
-                await chrome.tabs.update(tab.id, { url: url });
-                // Aguarda a página carregar
-                await waitForTabLoad(tab.id);
+            if (trackedTabs.length > 0) {
+                // Usa a primeira aba rastreada encontrada
+                const tab = trackedTabs[0];
+                
+                // Ativa a aba rastreada
+                await chrome.tabs.update(tab.id, { active: true });
+                await chrome.windows.update(tab.windowId, { focused: true });
+                
+                // Verifica se está na página de conversas, se não, navega
+                if (!tab.url.includes('/conversations')) {
+                    await chrome.tabs.update(tab.id, { url: url });
+                    await waitForTabLoad(tab.id);
+                }
+                
+                await checkAndNavigateToConversations(tab.id);
+                return { success: true, tabId: tab.id, message: 'Aba do Idealista rastreada encontrada e ativada' };
             }
-            
-            // Verifica login e navega se necessário
-            await checkAndNavigateToConversations(tab.id);
-            
-            return { success: true, tabId: tab.id };
-        } else {
-            // Cria nova aba
-            const tab = await chrome.tabs.create({ url: url, active: true });
-            
-            // Aguarda a página carregar
-            await waitForTabLoad(tab.id);
-            
-            // Verifica login e navega se necessário
-            await checkAndNavigateToConversations(tab.id);
-            
-            return { success: true, tabId: tab.id };
         }
+        
+        // Não encontrou aba rastreada, cria uma nova
+        // (não reutiliza abas existentes que não foram criadas pela extensão)
+        const tab = await chrome.tabs.create({ url: url, active: true });
+        
+        // Marca como aba da extensão
+        await markTabAsExtensionTab(tab.id);
+        
+        // Aguarda a página carregar
+        await waitForTabLoad(tab.id);
+        
+        // Verifica login e navega se necessário
+        await checkAndNavigateToConversations(tab.id);
+        
+        return { success: true, tabId: tab.id, message: 'Nova aba do Idealista criada pela extensão' };
     } catch (error) {
         console.error('Erro ao abrir Idealista:', error);
         return { success: false, error: error.message };
@@ -246,6 +350,64 @@ async function injectOverlay(tabId) {
         // Não lança erro para não bloquear o fluxo
     }
 }
+
+/**
+ * Fecha todas as abas abertas pela extensão
+ * Fecha APENAS as abas que foram rastreadas como abertas pela extensão
+ */
+async function closeAllExtensionTabs() {
+    try {
+        // Obtém lista de abas rastreadas pela extensão
+        const extensionTabIds = await getExtensionTabs();
+        
+        if (extensionTabIds.length === 0) {
+            console.log('ℹ️ Nenhuma aba rastreada pela extensão para fechar');
+            return { success: true, closed: 0, tracked: 0 };
+        }
+        
+        // Verifica quais abas ainda existem
+        const existingTabs = await chrome.tabs.query({});
+        const existingTabIds = existingTabs.map(t => t.id);
+        
+        // Filtra apenas as abas que ainda existem e foram abertas pela extensão
+        const tabsToClose = extensionTabIds.filter(tabId => existingTabIds.includes(tabId));
+        
+        // Também verifica popups de logs (sempre fechar, pois são criados pela extensão)
+        const logPopups = [];
+        for (const tab of existingTabs) {
+            if (tab.url && (tab.url.includes('logs-popup.html') || tab.url.includes(chrome.runtime.id))) {
+                if (!tabsToClose.includes(tab.id)) {
+                    logPopups.push(tab.id);
+                }
+            }
+        }
+        
+        // Combina apenas abas rastreadas + popups de logs
+        const allTabsToClose = [...new Set([...tabsToClose, ...logPopups])];
+
+        // Fecha todas as abas encontradas
+        if (allTabsToClose.length > 0) {
+            await chrome.tabs.remove(allTabsToClose);
+            
+            // Remove das abas rastreadas
+            await chrome.storage.local.set({ extension_tabs: [] });
+            
+            console.log(`✅ ${allTabsToClose.length} aba(s) fechada(s) pelo logout (${tabsToClose.length} rastreadas, ${logPopups.length} popups de logs)`);
+        } else {
+            console.log('ℹ️ Nenhuma aba rastreada encontrada para fechar');
+        }
+        
+        return { success: true, closed: allTabsToClose.length, tracked: tabsToClose.length, popups: logPopups.length };
+    } catch (error) {
+        console.error('Erro ao fechar abas:', error);
+        throw error;
+    }
+}
+
+// Listener para limpar abas fechadas da lista de rastreamento
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+    await unmarkTabAsExtensionTab(tabId);
+});
 
 // Listener para reinjetar overlay após refresh/navegação
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {

@@ -45,6 +45,15 @@
             </div>
         </div>
     `;
+    
+    // Cria countdown no canto inferior direito
+    const countdown = document.createElement('div');
+    countdown.id = 'imobflash-countdown';
+    countdown.className = 'imobflash-countdown';
+    countdown.innerHTML = `
+        <div class="imobflash-countdown-label">Próximo refresh em:</div>
+        <div class="imobflash-countdown-time" id="imobflash-countdown-time">--:--</div>
+    `;
 
     // Função para injetar o overlay
     function injectOverlay() {
@@ -53,15 +62,17 @@
             return;
         }
 
-        // Adiciona todos ao body (máscara primeiro, depois blocker, depois indicador)
+        // Adiciona todos ao body (máscara primeiro, depois blocker, depois indicador, depois countdown)
         document.body.appendChild(mask);
         document.body.appendChild(blocker);
         document.body.appendChild(overlay);
+        document.body.appendChild(countdown);
         
         // Log para debug
         console.log('✅ Máscara criada:', document.getElementById('imobflash-mask') ? 'SIM' : 'NÃO');
         console.log('✅ Blocker criado:', document.getElementById('imobflash-blocker') ? 'SIM' : 'NÃO');
         console.log('✅ Overlay criado:', document.getElementById('imobflash-overlay') ? 'SIM' : 'NÃO');
+        console.log('✅ Countdown criado:', document.getElementById('imobflash-countdown') ? 'SIM' : 'NÃO');
     }
 
     // Tenta injetar imediatamente se o body já existe
@@ -256,39 +267,137 @@
         });
     }
     
-    // Listener para mensagens do content script (via storage)
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.onChanged.addListener((changes, areaName) => {
-            if (areaName === 'local' && changes.pendingLogs) {
-                const newLogs = changes.pendingLogs.newValue || [];
-                const oldLogs = changes.pendingLogs.oldValue || [];
-                
-                if (newLogs.length > oldLogs.length) {
-                    const addedLogs = newLogs.slice(oldLogs.length);
-                    addedLogs.forEach(log => {
-                        addLog(log.message, log.level);
-                    });
-                    
-                    // Limpa logs pendentes após processar
-                    chrome.storage.local.set({ pendingLogs: [] });
+    // Função helper para verificar se o contexto da extensão ainda é válido
+    function isExtensionContextValid() {
+        try {
+            // Tenta acessar chrome.runtime para verificar se o contexto ainda é válido
+            return typeof chrome !== 'undefined' && 
+                   chrome.runtime && 
+                   chrome.runtime.id !== undefined;
+        } catch (e) {
+            return false;
+        }
+    }
+    
+    // Função helper para usar chrome.storage com verificação de contexto
+    function safeStorageGet(keys, callback) {
+        if (!isExtensionContextValid()) {
+            return;
+        }
+        
+        try {
+            chrome.storage.local.get(keys, (result) => {
+                if (chrome.runtime.lastError) {
+                    // Contexto inválido, para de tentar
+                    return;
                 }
-            }
-        });
+                callback(result);
+            });
+        } catch (e) {
+            // Contexto inválido, ignora
+        }
+    }
+    
+    function safeStorageSet(data, callback) {
+        if (!isExtensionContextValid()) {
+            return;
+        }
+        
+        try {
+            chrome.storage.local.set(data, () => {
+                if (chrome.runtime.lastError) {
+                    // Contexto inválido, para de tentar
+                    return;
+                }
+                if (callback) callback();
+            });
+        } catch (e) {
+            // Contexto inválido, ignora
+        }
+    }
+    
+    // Listener para mensagens do content script (via storage)
+    if (typeof chrome !== 'undefined' && chrome.storage && isExtensionContextValid()) {
+        try {
+            chrome.storage.onChanged.addListener((changes, areaName) => {
+                if (!isExtensionContextValid()) {
+                    return;
+                }
+                
+                if (areaName === 'local' && changes.pendingLogs) {
+                    const newLogs = changes.pendingLogs.newValue || [];
+                    const oldLogs = changes.pendingLogs.oldValue || [];
+                    
+                    if (newLogs.length > oldLogs.length) {
+                        const addedLogs = newLogs.slice(oldLogs.length);
+                        addedLogs.forEach(log => {
+                            addLog(log.message, log.level);
+                        });
+                        
+                        // Limpa logs pendentes após processar
+                        safeStorageSet({ pendingLogs: [] });
+                    }
+                }
+            });
+        } catch (e) {
+            // Contexto inválido, ignora
+        }
         
         // Polling alternativo para logs (fallback)
-        setInterval(() => {
-            chrome.storage.local.get(['pendingLogs'], (result) => {
-                if (result.pendingLogs && result.pendingLogs.length > 0) {
+        let pollingInterval = setInterval(() => {
+            if (!isExtensionContextValid()) {
+                // Para o polling se o contexto ficar inválido
+                clearInterval(pollingInterval);
+                return;
+            }
+            
+            safeStorageGet(['pendingLogs'], (result) => {
+                if (result && result.pendingLogs && result.pendingLogs.length > 0) {
                     result.pendingLogs.forEach(log => {
                         addLog(log.message, log.level);
                     });
                     
                     // Limpa logs pendentes após processar
-                    chrome.storage.local.set({ pendingLogs: [] });
+                    safeStorageSet({ pendingLogs: [] });
                 }
             });
         }, 500);
     }
+    
+    // Função para atualizar o countdown
+    function updateCountdown(secondsRemaining) {
+        const countdownTimeEl = document.getElementById('imobflash-countdown-time');
+        if (!countdownTimeEl) return;
+        
+        if (secondsRemaining === null || secondsRemaining === undefined || secondsRemaining < 0) {
+            countdownTimeEl.textContent = '--:--';
+            return;
+        }
+        
+        const minutes = Math.floor(secondsRemaining / 60);
+        const seconds = secondsRemaining % 60;
+        countdownTimeEl.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+    
+    // Atualiza o countdown a cada segundo (fallback caso content.js não esteja atualizando)
+    setInterval(() => {
+        // Busca o tempo restante do window (será definido pelo content.js)
+        if (window.imobflashRefreshTimeRemaining !== undefined && window.imobflashRefreshTimeRemaining !== null) {
+            updateCountdown(window.imobflashRefreshTimeRemaining);
+        } else {
+            // Se não há valor definido, tenta ler do DOM diretamente
+            const countdownTimeEl = document.getElementById('imobflash-countdown-time');
+            if (countdownTimeEl && countdownTimeEl.textContent === '--:--') {
+                // Se ainda está em --:--, não faz nada (aguarda content.js atualizar)
+            }
+        }
+    }, 1000);
+    
+    // Expõe função para atualizar countdown via mensagem
+    window.updateRefreshCountdown = function(secondsRemaining) {
+        window.imobflashRefreshTimeRemaining = secondsRemaining;
+        updateCountdown(secondsRemaining);
+    };
 
     console.log('✅ ImobFlash Agent Overlay ativado');
 })();

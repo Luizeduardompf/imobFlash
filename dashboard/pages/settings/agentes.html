@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentes - Configurações - ImobFlash</title>
+    <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>🏠 ImobFlash</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="../../dashboard.html" class="nav-item">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="../conversations.html" class="nav-item">
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-text">Conversas</span>
+                </a>
+                <a href="../settings.html" class="nav-item active">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Configurações</span>
+                </a>
+            </nav>
+            
+            <!-- Submenu de Configurações -->
+            <nav class="sidebar-subnav" id="settingsSubnav">
+                <a href="geral.html" class="subnav-item">
+                    <span class="subnav-icon">⚙️</span>
+                    <span class="subnav-text">Geral</span>
+                </a>
+                <a href="database.html" class="subnav-item">
+                    <span class="subnav-icon">🗄️</span>
+                    <span class="subnav-text">Base de Dados</span>
+                </a>
+                <a href="origens.html" class="subnav-item">
+                    <span class="subnav-icon">🏠</span>
+                    <span class="subnav-text">Origens</span>
+                </a>
+                <a href="agentes.html" class="subnav-item active">
+                    <span class="subnav-icon">👤</span>
+                    <span class="subnav-text">Agentes</span>
+                </a>
+                <a href="paises-cidades.html" class="subnav-item">
+                    <span class="subnav-icon">🌍</span>
+                    <span class="subnav-text">Países e Cidades</span>
+                </a>
+                <a href="agente-ia.html" class="subnav-item">
+                    <span class="subnav-icon">🤖</span>
+                    <span class="subnav-text">Agente IA</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="dashboard-header">
+                <h1>👤 Agentes</h1>
+                <div class="header-actions">
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span id="connectionStatus">Conectado</span>
+                    </div>
+                    <button class="btn btn-logout" onclick="logout()">Sair</button>
+                </div>
+            </header>
+
+            <!-- Settings Content -->
+            <div class="dashboard-content">
+                <div class="settings-container">
+                    <h2 class="settings-title">👤 Gerenciar Agentes</h2>
+                    
+                    <div class="settings-section">
+                        <p class="settings-description">Gerencie os agentes imobiliários do sistema. Cada conversa deve estar associada a um agente.</p>
+                        
+                        <!-- Lista de Agentes -->
+                        <div class="settings-card">
+                            <div class="settings-card-header">
+                                <h4>Agentes Cadastrados</h4>
+                                <button class="btn btn-primary" onclick="showAddAgentModal()">➕ Adicionar Agente</button>
+                            </div>
+                            <div class="settings-card-body">
+                                <div id="agentsList" class="agents-list">
+                                    <div class="loading">
+                                        <div class="spinner"></div>
+                                        <p>Carregando agentes...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Adicionar/Editar Agente -->
+    <div id="agentModal" class="modal" style="display: none;">
+        <div class="modal-content large">
+            <div class="modal-header" style="flex-shrink: 0;">
+                <h3 id="modalTitle">Adicionar Agente</h3>
+                <button class="modal-close" onclick="closeAgentModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="overflow-y: auto; flex: 1; min-height: 0;">
+                <form id="agentForm" onsubmit="saveAgent(event)">
+                    <input type="hidden" id="agentId" value="">
+                    
+                    <div class="form-group">
+                        <label for="agentFullName">Nome Completo *</label>
+                        <input type="text" id="agentFullName" class="form-input" required placeholder="Ex: João Silva">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="agentCommercialName">Nome Comercial *</label>
+                        <input type="text" id="agentCommercialName" class="form-input" required placeholder="Ex: João Silva Imóveis">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="agentNif">NIF</label>
+                        <input type="text" id="agentNif" class="form-input" placeholder="Ex: 123456789">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="agentPhone">Telefone</label>
+                        <input type="tel" id="agentPhone" class="form-input" placeholder="Ex: +351 912 345 678">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="agentWhatsApp">WhatsApp</label>
+                        <input type="tel" id="agentWhatsApp" class="form-input" placeholder="Ex: +351 912 345 678">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="agentEmail">Email *</label>
+                        <input type="email" id="agentEmail" class="form-input" required placeholder="Ex: joao@exemplo.com">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="agentPassword">Senha</label>
+                        <input type="password" id="agentPassword" class="form-input" placeholder="Deixe em branco para não alterar">
+                        <small style="color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px;">Deixe em branco ao editar para manter a senha atual</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="agentAvatar">Foto/Avatar</label>
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <input type="file" id="agentAvatarFile" accept="image/*" class="form-input" style="padding: 8px; cursor: pointer;">
+                            <small style="color: var(--text-muted); font-size: 12px; margin-top: -5px;">Ou informe uma URL:</small>
+                            <input type="url" id="agentAvatarUrl" class="form-input" placeholder="Ex: https://exemplo.com/foto.jpg">
+                            <div id="avatarPreview" style="margin-top: 10px; display: none; text-align: center;">
+                                <img id="avatarPreviewImg" src="" alt="Preview" style="max-width: 150px; max-height: 150px; border-radius: 8px; border: 2px solid var(--border); display: block; margin: 0 auto;">
+                                <button type="button" id="removeAvatarBtn" style="margin-top: 8px; padding: 6px 12px; background: var(--danger); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Remover Foto</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="agentCountry">País</label>
+                        <select id="agentCountry" class="form-input">
+                            <option value="">Selecione um país...</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="agentCity">Cidade</label>
+                        <select id="agentCity" class="form-input">
+                            <option value="">Selecione primeiro um país...</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="agentStatus">Status *</label>
+                        <select id="agentStatus" class="form-input" required>
+                            <option value="Pendente">Pendente</option>
+                            <option value="Ativo">Ativo</option>
+                            <option value="Inativo">Inativo</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-actions" style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); display: flex; gap: 12px; justify-content: flex-end; position: sticky; bottom: 0; background: var(--bg-card); z-index: 10;">
+                        <button type="button" class="btn btn-secondary" onclick="closeAgentModal()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Salvar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../../js/config.js"></script>
+    <script src="../../js/toast.js"></script>
+    <script src="../../js/settings-agentes.js"></script>
+</body>
+</html>
+

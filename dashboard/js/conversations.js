@@ -11,6 +11,8 @@ let conversations = [];
 let messages = [];
 let selectedConversationId = null;
 let realtimeSubscriptions = [];
+let agents = [];
+let selectedAgentId = null; // Agente selecionado no filtro
 
 // Inicialização
 document.addEventListener('DOMContentLoaded', async function() {
@@ -32,6 +34,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Carrega dados iniciais
     await fetchLeadSources(); // Carrega origens primeiro
+    await fetchAgents(); // Carrega agentes
     await fetchConversations();
     setupRealtime();
     updateConnectionStatus(true);
@@ -39,6 +42,79 @@ document.addEventListener('DOMContentLoaded', async function() {
 
 // Cache de origens de leads
 let leadSourcesCache = {};
+
+// Busca agentes do Supabase
+async function fetchAgents() {
+    try {
+        const url = `${SUPABASE_CONFIG.url}/rest/v1/agents?select=id,commercial_name,full_name,status&order=commercial_name.asc`;
+        const response = await fetch(url, {
+            headers: {
+                'apikey': SUPABASE_CONFIG.anonKey,
+                'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            agents = await response.json();
+            populateAgentFilter();
+            console.log(`✅ ${agents.length} agentes carregados`);
+            return true;
+        } else {
+            console.warn('⚠️ Erro ao buscar agentes');
+            return false;
+        }
+    } catch (error) {
+        console.warn('⚠️ Erro ao buscar agentes:', error);
+        return false;
+    }
+}
+
+// Preenche o select de agentes
+function populateAgentFilter() {
+    const select = document.getElementById('agentFilter');
+    if (!select) return;
+    
+    // Mantém a opção "Todos os agentes"
+    const currentValue = select.value;
+    select.innerHTML = '<option value="">Todos os agentes</option>';
+    
+    // Adiciona apenas agentes ativos
+    agents.filter(agent => agent.status === 'Ativo').forEach(agent => {
+        const option = document.createElement('option');
+        option.value = agent.id;
+        option.textContent = agent.commercial_name || agent.full_name;
+        select.appendChild(option);
+    });
+    
+    // Restaura seleção anterior se ainda existir
+    if (currentValue) {
+        select.value = currentValue;
+    }
+}
+
+// Handler para mudança de filtro de agente
+function onAgentFilterChange() {
+    const select = document.getElementById('agentFilter');
+    if (!select) return;
+    
+    selectedAgentId = select.value || null;
+    
+    // Recarrega conversas do servidor com o novo filtro
+    fetchConversations();
+    
+    // Limpa seleção de conversa quando muda o filtro
+    selectedConversationId = null;
+    document.getElementById('messagesContent').innerHTML = `
+        <div class="empty-messages">
+            <div class="empty-state-icon">💬</div>
+            <p>Nenhuma conversa selecionada</p>
+            <p style="font-size: 14px; color: var(--text-muted); margin-top: 8px;">Selecione uma conversa da lista ao lado para ver as mensagens</p>
+        </div>
+    `;
+    
+    console.log(`🔍 Filtro de agente alterado: ${selectedAgentId ? 'Agente específico' : 'Todos os agentes'}`);
+}
 
 // Busca origens de leads do Supabase
 async function fetchLeadSources() {
@@ -79,7 +155,16 @@ async function fetchConversations() {
     if (!container) return false;
     
     try {
-        const url = `${SUPABASE_CONFIG.url}/rest/v1/conversations?select=*,param_lead_sources(source)&order=last_message_date.desc,timestamp.desc`;
+        // Monta URL com filtro de agente se selecionado
+        let url = `${SUPABASE_CONFIG.url}/rest/v1/conversations?select=*,param_lead_sources(source)`;
+        
+        // Adiciona filtro de agente se houver um selecionado
+        if (selectedAgentId) {
+            url += `&agent_id=eq.${selectedAgentId}`;
+        }
+        
+        url += `&order=last_message_date.desc,timestamp.desc`;
+        
         const response = await fetch(url, {
             headers: {
                 'apikey': SUPABASE_CONFIG.anonKey,
@@ -102,7 +187,7 @@ async function fetchConversations() {
                 return conv;
             });
             renderConversations();
-            console.log(`✅ ${conversations.length} conversas carregadas`);
+            console.log(`✅ ${conversations.length} conversas carregadas${selectedAgentId ? ' (filtradas por agente)' : ''}`);
             return true;
         } else {
             const errorText = await response.text();

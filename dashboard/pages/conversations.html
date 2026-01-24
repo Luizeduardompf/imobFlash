@@ -51,6 +51,12 @@
                 <div class="conversations-panel">
                     <div class="conversations-header">
                         <h3>Conversas</h3>
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                            <label for="agentFilter" style="color: var(--text-muted); font-size: 13px; white-space: nowrap;">Agente:</label>
+                            <select id="agentFilter" class="form-input" style="flex: 1; padding: 8px 12px; font-size: 13px;" onchange="onAgentFilterChange()">
+                                <option value="">Todos</option>
+                            </select>
+                        </div>
                         <input type="text" class="search-box" id="searchConversations" placeholder="Buscar conversas..." onkeyup="filterConversations()">
                     </div>
                     <div class="conversations-list" id="conversationsList">

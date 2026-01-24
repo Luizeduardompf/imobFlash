@@ -282,15 +282,81 @@ async function deleteSelectedConversation() {
     }
 }
 
-// Deleta todo o banco de dados
-async function deleteAllData() {
-    // Confirmação simples
-    if (!confirm('⚠️ Tem certeza que deseja deletar TODOS os dados?\n\nEsta ação é irreversível!')) {
+// Deleta todas as conversas e mensagens (mantém outras tabelas)
+async function deleteAllConversationsAndMessages() {
+    // Confirmação
+    if (!confirm('⚠️ Tem certeza que deseja deletar TODAS as conversas e mensagens?\n\nEsta ação irá:\n- Deletar todas as conversas\n- Deletar todas as mensagens\n\nOutras tabelas (agentes, países, cidades, etc.) serão mantidas.\n\nEsta ação não pode ser desfeita!')) {
         return;
     }
     
     try {
-        // Deleta todas as mensagens (usa WHERE clause para selecionar todos)
+        // Deleta todas as mensagens primeiro (usa WHERE clause para selecionar todos)
+        const messagesUrl = `${SUPABASE_CONFIG.url}/rest/v1/messages?message_id=not.is.null`;
+        const messagesResponse = await fetch(messagesUrl, {
+            method: 'DELETE',
+            headers: {
+                'apikey': SUPABASE_CONFIG.anonKey,
+                'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=representation'
+            }
+        });
+        
+        if (!messagesResponse.ok && messagesResponse.status !== 404) {
+            const errorText = await messagesResponse.text();
+            console.error('Erro ao deletar mensagens:', errorText);
+            showError('Erro ao deletar mensagens. Verifique o console para mais detalhes.');
+            return;
+        } else {
+            console.log('✅ Todas as mensagens deletadas');
+        }
+        
+        // Deleta todas as conversas (usa WHERE clause para selecionar todos)
+        const conversationsUrl = `${SUPABASE_CONFIG.url}/rest/v1/conversations?conversation_id=not.is.null`;
+        const conversationsResponse = await fetch(conversationsUrl, {
+            method: 'DELETE',
+            headers: {
+                'apikey': SUPABASE_CONFIG.anonKey,
+                'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=representation'
+            }
+        });
+        
+        if (conversationsResponse.ok) {
+            showSuccess('Todas as conversas e mensagens foram deletadas com sucesso!');
+            
+            // Atualiza os dados
+            conversations = [];
+            messages = [];
+            await Promise.all([fetchConversations(), fetchMessages()]);
+            updateConversationSelect();
+            updateStats();
+        } else {
+            const errorText = await conversationsResponse.text();
+            console.error('Erro ao deletar conversas:', errorText);
+            showError('Erro ao deletar conversas. Verifique o console para mais detalhes.');
+        }
+    } catch (error) {
+        console.error('Erro ao deletar conversas e mensagens:', error);
+        showError('Erro ao deletar conversas e mensagens: ' + error.message);
+    }
+}
+
+// Deleta todo o banco de dados
+async function deleteAllData() {
+    // Confirmação dupla para ação mais destrutiva
+    if (!confirm('⚠️⚠️ ATENÇÃO: Esta ação irá deletar TODOS os dados do sistema!\n\nIsso inclui:\n- Todas as conversas\n- Todas as mensagens\n- Todos os agentes\n- Todos os países\n- Todas as cidades\n- Todas as configurações\n\nEsta ação é COMPLETAMENTE IRREVERSÍVEL!\n\nDeseja realmente continuar?')) {
+        return;
+    }
+    
+    // Segunda confirmação
+    if (!confirm('⚠️⚠️ ÚLTIMA CONFIRMAÇÃO!\n\nVocê está prestes a deletar TODOS os dados do sistema.\n\nTem CERTEZA ABSOLUTA que deseja continuar?')) {
+        return;
+    }
+    
+    try {
+        // Deleta todas as mensagens primeiro
         const messagesUrl = `${SUPABASE_CONFIG.url}/rest/v1/messages?message_id=not.is.null`;
         const messagesResponse = await fetch(messagesUrl, {
             method: 'DELETE',
@@ -309,9 +375,57 @@ async function deleteAllData() {
             console.log('✅ Todas as mensagens deletadas');
         }
         
-        // Deleta todas as conversas (usa WHERE clause para selecionar todos)
+        // Deleta todas as conversas
         const conversationsUrl = `${SUPABASE_CONFIG.url}/rest/v1/conversations?conversation_id=not.is.null`;
         const conversationsResponse = await fetch(conversationsUrl, {
+            method: 'DELETE',
+            headers: {
+                'apikey': SUPABASE_CONFIG.anonKey,
+                'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=representation'
+            }
+        });
+        
+        // Deleta todos os agentes
+        const agentsUrl = `${SUPABASE_CONFIG.url}/rest/v1/agents?id=not.is.null`;
+        const agentsResponse = await fetch(agentsUrl, {
+            method: 'DELETE',
+            headers: {
+                'apikey': SUPABASE_CONFIG.anonKey,
+                'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=representation'
+            }
+        });
+        
+        // Deleta todas as cidades
+        const citiesUrl = `${SUPABASE_CONFIG.url}/rest/v1/cities?id=not.is.null`;
+        const citiesResponse = await fetch(citiesUrl, {
+            method: 'DELETE',
+            headers: {
+                'apikey': SUPABASE_CONFIG.anonKey,
+                'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=representation'
+            }
+        });
+        
+        // Deleta todos os países
+        const countriesUrl = `${SUPABASE_CONFIG.url}/rest/v1/countries?id=not.is.null`;
+        const countriesResponse = await fetch(countriesUrl, {
+            method: 'DELETE',
+            headers: {
+                'apikey': SUPABASE_CONFIG.anonKey,
+                'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=representation'
+            }
+        });
+        
+        // Deleta todas as origens de leads
+        const leadSourcesUrl = `${SUPABASE_CONFIG.url}/rest/v1/param_lead_sources?id=not.is.null`;
+        const leadSourcesResponse = await fetch(leadSourcesUrl, {
             method: 'DELETE',
             headers: {
                 'apikey': SUPABASE_CONFIG.anonKey,

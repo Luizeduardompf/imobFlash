@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Países e Cidades - Configurações - ImobFlash</title>
+    <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>🏠 ImobFlash</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="../../dashboard.html" class="nav-item">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="../conversations.html" class="nav-item">
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-text">Conversas</span>
+                </a>
+                <a href="../settings.html" class="nav-item active">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Configurações</span>
+                </a>
+            </nav>
+            
+            <!-- Submenu de Configurações -->
+            <nav class="sidebar-subnav" id="settingsSubnav">
+                <a href="geral.html" class="subnav-item">
+                    <span class="subnav-icon">⚙️</span>
+                    <span class="subnav-text">Geral</span>
+                </a>
+                <a href="database.html" class="subnav-item">
+                    <span class="subnav-icon">🗄️</span>
+                    <span class="subnav-text">Base de Dados</span>
+                </a>
+                <a href="origens.html" class="subnav-item">
+                    <span class="subnav-icon">🏠</span>
+                    <span class="subnav-text">Origens</span>
+                </a>
+                <a href="agentes.html" class="subnav-item">
+                    <span class="subnav-icon">👤</span>
+                    <span class="subnav-text">Agentes</span>
+                </a>
+                <a href="paises-cidades.html" class="subnav-item active">
+                    <span class="subnav-icon">🌍</span>
+                    <span class="subnav-text">Países e Cidades</span>
+                </a>
+                <a href="agente-ia.html" class="subnav-item">
+                    <span class="subnav-icon">🤖</span>
+                    <span class="subnav-text">Agente IA</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="dashboard-header">
+                <h1>🌍 Países e Cidades</h1>
+                <div class="header-actions">
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span id="connectionStatus">Conectado</span>
+                    </div>
+                    <button class="btn btn-logout" onclick="logout()">Sair</button>
+                </div>
+            </header>
+
+            <!-- Settings Content -->
+            <div class="dashboard-content">
+                <div class="settings-container">
+                    <h2 class="settings-title">🌍 Gerenciar Países e Cidades</h2>
+                    
+                    <!-- Seção de Países -->
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">🌍 Países</h3>
+                        <p class="settings-description">Gerencie os países disponíveis no sistema.</p>
+                        
+                        <div class="settings-card">
+                            <div class="settings-card-header">
+                                <h4>Países Cadastrados</h4>
+                                <button class="btn btn-primary" onclick="showAddCountryModal()">➕ Adicionar País</button>
+                            </div>
+                            <div class="settings-card-body">
+                                <div id="countriesList" class="origins-list">
+                                    <div class="loading">
+                                        <div class="spinner"></div>
+                                        <p>Carregando países...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Seção de Cidades -->
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">🏙️ Cidades</h3>
+                        <p class="settings-description">Gerencie as cidades disponíveis no sistema. As cidades devem estar associadas a um país.</p>
+                        
+                        <div class="settings-card">
+                            <div class="settings-card-header">
+                                <h4>Cidades Cadastradas</h4>
+                                <button class="btn btn-primary" onclick="showAddCityModal()">➕ Adicionar Cidade</button>
+                            </div>
+                            <div class="settings-card-body">
+                                <div id="citiesList" class="origins-list">
+                                    <div class="loading">
+                                        <div class="spinner"></div>
+                                        <p>Carregando cidades...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Adicionar/Editar País -->
+    <div id="countryModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="countryModalTitle">Adicionar País</h3>
+                <button class="modal-close" onclick="closeCountryModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="countryForm" onsubmit="saveCountry(event)">
+                    <input type="hidden" id="countryId" value="">
+                    <div class="form-group">
+                        <label for="countryName">Nome do País *</label>
+                        <input type="text" id="countryName" class="form-input" required placeholder="Ex: Portugal">
+                    </div>
+                    <div class="form-group">
+                        <label for="countryCode">Código ISO *</label>
+                        <input type="text" id="countryCode" class="form-input" required placeholder="Ex: PT" maxlength="2" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeCountryModal()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Salvar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Adicionar/Editar Cidade -->
+    <div id="cityModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="cityModalTitle">Adicionar Cidade</h3>
+                <button class="modal-close" onclick="closeCityModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="cityForm" onsubmit="saveCity(event)">
+                    <input type="hidden" id="cityId" value="">
+                    <div class="form-group">
+                        <label for="cityCountry">País *</label>
+                        <select id="cityCountry" class="form-input" required>
+                            <option value="">Selecione um país...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="cityName">Nome da Cidade *</label>
+                        <input type="text" id="cityName" class="form-input" required placeholder="Ex: Lisboa">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeCityModal()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Salvar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../../js/config.js"></script>
+    <script src="../../js/toast.js"></script>
+    <script src="../../js/settings-paises-cidades.js"></script>
+</body>
+</html>
+
