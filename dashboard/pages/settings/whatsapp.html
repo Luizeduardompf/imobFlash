@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp - Configurações - ImobFlash</title>
+    <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>🏠 ImobFlash</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="../../dashboard.html" class="nav-item">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="../conversations.html" class="nav-item">
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-text">Conversas</span>
+                </a>
+                <a href="../settings.html" class="nav-item active">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Configurações</span>
+                </a>
+            </nav>
+            
+            <!-- Submenu de Configurações -->
+            <nav class="sidebar-subnav" id="settingsSubnav">
+                <a href="geral.html" class="subnav-item">
+                    <span class="subnav-icon">⚙️</span>
+                    <span class="subnav-text">Geral</span>
+                </a>
+                <a href="database.html" class="subnav-item">
+                    <span class="subnav-icon">🗄️</span>
+                    <span class="subnav-text">Base de Dados</span>
+                </a>
+                <a href="origens.html" class="subnav-item">
+                    <span class="subnav-icon">🏠</span>
+                    <span class="subnav-text">Origens</span>
+                </a>
+                <a href="agentes.html" class="subnav-item">
+                    <span class="subnav-icon">👤</span>
+                    <span class="subnav-text">Agentes</span>
+                </a>
+                <a href="paises-cidades.html" class="subnav-item">
+                    <span class="subnav-icon">🌍</span>
+                    <span class="subnav-text">Países e Cidades</span>
+                </a>
+                <a href="agente-ia.html" class="subnav-item">
+                    <span class="subnav-icon">🤖</span>
+                    <span class="subnav-text">Agente IA</span>
+                </a>
+                <a href="whatsapp.html" class="subnav-item active">
+                    <span class="subnav-icon">💬</span>
+                    <span class="subnav-text">WhatsApp</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="dashboard-header">
+                <h1>💬 Configurações WhatsApp (Z-API)</h1>
+                <div class="header-actions">
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span id="connectionStatus">Conectado</span>
+                    </div>
+                    <button class="btn btn-logout" onclick="logout()">Sair</button>
+                </div>
+            </header>
+
+            <!-- Settings Content -->
+            <div class="dashboard-content">
+                <div class="settings-container">
+                    <h2 class="settings-title">💬 Configurações do WhatsApp (Z-API)</h2>
+                    <p class="settings-description">
+                        Configure as credenciais e parâmetros de conexão com a Z-API para integração com WhatsApp Business.
+                    </p>
+                    
+                    <!-- Painel de Informações Z-API -->
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">ℹ️ Sobre a Z-API</h3>
+                        <p class="settings-description">Informações sobre o serviço Z-API utilizado para integração com WhatsApp.</p>
+                        
+                        <div class="settings-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+                            <div class="settings-card-header" style="border-bottom: 1px solid rgba(255,255,255,0.2);">
+                                <h4 style="color: white; margin: 0;">🚀 Z-API - WhatsApp Business API</h4>
+                            </div>
+                            <div class="settings-card-body" style="padding: 20px;">
+                                <div style="display: grid; gap: 16px;">
+                                    <div>
+                                        <p style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.6;">
+                                            A <strong>Z-API</strong> é uma API para WhatsApp Business que permite o gerenciamento programático de comunicações via WhatsApp. 
+                                            Com ela, você pode enviar e receber mensagens, gerenciar contatos, chats, grupos, produtos e muito mais.
+                                        </p>
+                                    </div>
+                                    <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; border-left: 3px solid rgba(255,255,255,0.5);">
+                                        <p style="margin: 0; font-size: 13px;">
+                                            <strong>📧 Conta Trial:</strong> Foi criada uma conta trial com o email <strong>luizeduardompf@gmail.com</strong>
+                                        </p>
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 8px;">
+                                        <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 8px;">
+                                            <div style="font-size: 11px; opacity: 0.9; margin-bottom: 4px;">📚 Documentação</div>
+                                            <div style="font-size: 13px; font-weight: 500;">
+                                                <a href="https://developer.z-api.io/en/" target="_blank" style="color: white; text-decoration: underline;">
+                                                    developer.z-api.io
+                                                </a>
+                                            </div>
+                                        </div>
+                                        <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 8px;">
+                                            <div style="font-size: 11px; opacity: 0.9; margin-bottom: 4px;">🔑 Credenciais Necessárias</div>
+                                            <div style="font-size: 13px; font-weight: 500;">ID, Token Instância, Token Cliente</div>
+                                        </div>
+                                        <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 8px;">
+                                            <div style="font-size: 11px; opacity: 0.9; margin-bottom: 4px;">⚡ Funcionalidades</div>
+                                            <div style="font-size: 13px; font-weight: 500;">Envio/Recebimento de Mensagens</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">⚙️ Configurações de Conexão</h3>
+                        <p class="settings-description">Preencha as credenciais da sua instância Z-API abaixo.</p>
+                    </div>
+                    
+                    <div class="settings-card">
+                        <div class="settings-card-header">
+                            <h4>🔗 URL da API</h4>
+                            <p>URL base da API do WhatsApp</p>
+                        </div>
+                        <div class="settings-card-body">
+                            <div class="form-group">
+                                <label for="urlApi">URL da API</label>
+                                <input 
+                                    type="text" 
+                                    id="urlApi" 
+                                    class="form-input" 
+                                    placeholder="https://api.z-api.io"
+                                    autocomplete="off"
+                                >
+                                <small style="color: var(--text-muted); font-size: 12px; margin-top: 4px; display: block;">
+                                    URL base da API Z-API (ex: https://api.z-api.io)
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-card">
+                        <div class="settings-card-header">
+                            <h4>🆔 ID da Instância</h4>
+                            <p>Identificador único da instância do WhatsApp</p>
+                        </div>
+                        <div class="settings-card-body">
+                            <div class="form-group">
+                                <label for="instanciaID">ID da Instância</label>
+                                <input 
+                                    type="text" 
+                                    id="instanciaID" 
+                                    class="form-input" 
+                                    placeholder="Ex: instance-123"
+                                    autocomplete="off"
+                                >
+                                <small style="color: var(--text-muted); font-size: 12px; margin-top: 4px; display: block;">
+                                    ID da instância Z-API configurada na sua conta
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-card">
+                        <div class="settings-card-header">
+                            <h4>🔑 Token da Instância</h4>
+                            <p>Token de autenticação da instância</p>
+                        </div>
+                        <div class="settings-card-body">
+                            <div class="form-group">
+                                <label for="instanciaToken">Token da Instância</label>
+                                <input 
+                                    type="password" 
+                                    id="instanciaToken" 
+                                    class="form-input" 
+                                    placeholder="Token de autenticação"
+                                    autocomplete="off"
+                                >
+                                <small style="color: var(--text-muted); font-size: 12px; margin-top: 4px; display: block;">
+                                    Token de autenticação da instância Z-API
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-card">
+                        <div class="settings-card-header">
+                            <h4>🔐 Token do Cliente</h4>
+                            <p>Token de autenticação do cliente</p>
+                        </div>
+                        <div class="settings-card-body">
+                            <div class="form-group">
+                                <label for="clientToken">Token do Cliente</label>
+                                <input 
+                                    type="password" 
+                                    id="clientToken" 
+                                    class="form-input" 
+                                    placeholder="Token do cliente"
+                                    autocomplete="off"
+                                >
+                                <small style="color: var(--text-muted); font-size: 12px; margin-top: 4px; display: block;">
+                                    Token de autenticação do cliente Z-API para acesso à API
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn btn-primary btn-large" onclick="saveSettings()">
+                            💾 Salvar Configurações
+                        </button>
+                    </div>
+
+                    <div id="saveStatus" style="margin-top: 20px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../../js/config.js"></script>
+    <script src="../../js/toast.js"></script>
+    <script src="../../js/settings-whatsapp.js"></script>
+    <script>
+        // Função de logout
+        function logout() {
+            if (confirm('Deseja realmente sair?')) {
+                sessionStorage.removeItem('imobflash_logged_in');
+                sessionStorage.removeItem('imobflash_user_email');
+                window.location.href = '../../index.html';
+            }
+        }
+    </script>
+</body>
+</html>

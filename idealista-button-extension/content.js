@@ -158,11 +158,38 @@
      * @returns {string|null} ID da conversa ou null
      */
     function getCurrentConversationId() {
-        const activeButton = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
-        if (!activeButton) return null;
+        // Estratégia 1: Tenta encontrar pelo botão ativo
+        const activeButton = findActiveConversationButton();
+        if (activeButton) {
+            const activeLi = activeButton.closest('li[data-conversation-id]');
+            const conversationId = activeLi?.getAttribute('data-conversation-id');
+            if (conversationId) {
+                return conversationId;
+            }
+        }
         
-        const activeLi = activeButton.closest('li[data-conversation-id]');
-        return activeLi?.getAttribute('data-conversation-id') || null;
+        // Estratégia 2: Se há uma conversa aberta mas não encontrou o botão ativo,
+        // tenta verificar se algum botão tem classe que indica que está ativo
+        // ou se o elemento pai tem classe "active"
+        const allButtons = document.querySelectorAll('li[data-conversation-id] button');
+        for (const button of allButtons) {
+            const li = button.closest('li[data-conversation-id]');
+            if (li) {
+                // Verifica se o li ou o botão tem alguma indicação de estar ativo
+                const liClasses = li.className || '';
+                const buttonClasses = button.className || '';
+                
+                // Verifica se tem "active" em qualquer lugar das classes
+                if (liClasses.includes('active') || buttonClasses.includes('active')) {
+                    const conversationId = li.getAttribute('data-conversation-id');
+                    if (conversationId) {
+                        return conversationId;
+                    }
+                }
+            }
+        }
+        
+        return null;
     }
 
     // ============================================================================
@@ -661,7 +688,7 @@
     async function updatePhoneNumberInDatabase() {
         try {
             // Obtém o ID da conversa atual
-            const activeButton = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
+            const activeButton = findActiveConversationButton();
             if (!activeButton) return;
             
             const activeLi = activeButton.closest('li[data-conversation-id]');
@@ -795,8 +822,12 @@
                         console.log('🔍 Menu detectado por ID e sendo escondido:', node.id);
                         hideMenuImmediately(node);
                     }
-                    // Verifica se é um menu por classe
-                    if (node.classList && node.classList.contains('_kiwi-dropdown-menu_1pzru_1')) {
+                    // Verifica se é um menu por classe (usa verificação estável baseada em palavras-chave)
+                    const isMenu = node.classList && (
+                        node.classList.toString().includes('kiwi-dropdown-menu') ||
+                        node.classList.toString().includes('_kiwi-dropdown-menu_1pzru_1') // Fallback para hash atual
+                    );
+                    if (isMenu) {
                         console.log('🔍 Menu detectado por classe e sendo escondido:', node.id || 'sem-id');
                         hideMenuImmediately(node);
                     }
@@ -890,13 +921,79 @@
             return '';
         }
 
-        const trimmed = dateStr.trim();
+        let trimmed = dateStr.trim();
         const now = new Date();
         
         try {
-            // Padrão 1: Apenas hora (ex: "22:38")
+            // NORMALIZAÇÃO ROBUSTA: Trata todos os casos de horários mal formatados
+            
+            // Passo 1: Identifica padrão de hora (HH:MM, HH:MMM, HH:MMMM, etc.)
+            // Captura horas (1-2 dígitos) e minutos (2 ou mais dígitos)
+            const timePattern = /^(\d{1,2}):(\d{2,})/;
+            const timeMatch = trimmed.match(timePattern);
+            
+            if (timeMatch) {
+                // É um padrão de hora - normaliza
+                const hours = timeMatch[1];
+                let minutes = timeMatch[2];
+                const originalMinutes = minutes;
+                
+                // SEMPRE pega apenas os 2 primeiros dígitos dos minutos
+                // Isso trata: "19:331" -> "19:33", "18:412" -> "18:41", "22:3856" -> "22:38"
+                if (minutes.length > 2) {
+                    minutes = minutes.substring(0, 2);
+                    console.log(`🔧 [parseConversationDate] Normalizado: "${dateStr.trim()}" -> "${hours}:${minutes}" (removidos ${originalMinutes.length - 2} dígitos extras)`);
+                }
+                
+                // Reconstrói a string normalizada
+                trimmed = `${hours}:${minutes}`;
+            } else {
+                // Não é um padrão de hora puro, tenta limpar
+                // Remove caracteres não numéricos após os minutos
+                trimmed = trimmed.replace(/(\d{1,2}:\d{2})\D.*$/, '$1');
+                
+                // Corrige dígitos extras nos minutos (fallback mais agressivo)
+                // Tenta múltiplos padrões
+                trimmed = trimmed.replace(/^(\d{1,2}):(\d{3,})$/, (match, hours, minutes) => {
+                    const normalized = `${hours}:${minutes.substring(0, 2)}`;
+                    console.log(`🔧 [parseConversationDate] Fallback: "${match}" -> "${normalized}"`);
+                    return normalized;
+                });
+                
+                // Se ainda não está no formato correto, tenta uma última vez
+                const finalTimeMatch = trimmed.match(/^(\d{1,2}):(\d+)/);
+                if (finalTimeMatch && finalTimeMatch[2].length > 2) {
+                    trimmed = `${finalTimeMatch[1]}:${finalTimeMatch[2].substring(0, 2)}`;
+                    console.log(`🔧 [parseConversationDate] Última tentativa de normalização: "${dateStr.trim()}" -> "${trimmed}"`);
+                }
+            }
+            
+            // Padrão 1: Apenas hora normalizada (ex: "22:38", "18:41", "19:33")
             const timeOnlyPattern = /^(\d{1,2}):(\d{2})$/;
             const timeOnlyMatch = trimmed.match(timeOnlyPattern);
+            
+            // Se ainda não está no formato correto após todas as tentativas, tenta uma última normalização forçada
+            if (!timeOnlyMatch && trimmed.match(/^\d{1,2}:\d+/)) {
+                const forcedMatch = trimmed.match(/^(\d{1,2}):(\d+)/);
+                if (forcedMatch) {
+                    const hours = forcedMatch[1];
+                    const minutes = forcedMatch[2].substring(0, 2).padStart(2, '0');
+                    trimmed = `${hours}:${minutes}`;
+                    console.log(`🔧 [parseConversationDate] Normalização forçada: "${dateStr.trim()}" -> "${trimmed}"`);
+                    // Tenta o match novamente
+                    const retryMatch = trimmed.match(timeOnlyPattern);
+                    if (retryMatch) {
+                        const hours = parseInt(retryMatch[1], 10);
+                        const minutes = parseInt(retryMatch[2], 10);
+                        if (hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+                            const messageDate = new Date(now);
+                            messageDate.setHours(hours, minutes, 0, 0);
+                            console.log(`✅ [parseConversationDate] Parseado com sucesso após normalização forçada: "${dateStr.trim()}" -> "${trimmed}"`);
+                            return messageDate.toISOString();
+                        }
+                    }
+                }
+            }
             if (timeOnlyMatch) {
                 const hours = parseInt(timeOnlyMatch[1], 10);
                 const minutes = parseInt(timeOnlyMatch[2], 10);
@@ -906,7 +1003,13 @@
                     const messageDate = new Date(now);
                     messageDate.setHours(hours, minutes, 0, 0);
                     // Retorna timestamp ISO (termina com 'Z')
-                    return messageDate.toISOString();
+                    const result = messageDate.toISOString();
+                    if (dateStr.trim() !== trimmed) {
+                        console.log(`✅ [parseConversationDate] Parseado com sucesso após normalização: "${dateStr.trim()}" -> "${trimmed}" -> ${result}`);
+                    }
+                    return result;
+                } else {
+                    console.warn(`⚠️ [parseConversationDate] Horário inválido após normalização: "${trimmed}" (horas: ${hours}, minutos: ${minutes})`);
                 }
             }
 
@@ -963,10 +1066,25 @@
             }
 
             // Se não conseguiu parsear, retorna string vazia (não salva timestamp inválido)
-            console.warn('⚠️ Não foi possível parsear data da conversa:', trimmed);
+            // Só mostra warning se realmente não conseguiu parsear (não é data ISO já formatada)
+            if (trimmed && trimmed.length > 0 && !trimmed.match(/^\d{4}-\d{2}-\d{2}/)) {
+                // Verifica se é um padrão que deveria ter sido tratado mas não foi
+                const shouldHaveBeenParsed = /^\d{1,2}[:/]/.test(trimmed);
+                if (shouldHaveBeenParsed) {
+                    console.warn('⚠️ [parseConversationDate] Não foi possível parsear data que deveria ser válida:', {
+                        original: dateStr.trim(),
+                        normalized: trimmed,
+                        motivo: 'Padrão não reconhecido após normalização'
+                    });
+                }
+                // Não mostra warning para strings vazias ou que não parecem ser datas/horas
+            }
             return '';
         } catch (error) {
-            console.error('❌ Erro ao parsear data da conversa:', error, 'dateStr:', trimmed);
+            console.error('❌ [parseConversationDate] Erro ao parsear data da conversa:', error, {
+                original: dateStr?.trim(),
+                errorMessage: error.message
+            });
             return '';
         }
     }
@@ -976,84 +1094,196 @@
      * @param {HTMLElement} conversationElement - Elemento <li> da conversa na lista
      * @returns {Object|null} Dados da conversa ou null
      */
+    /**
+     * Encontra elemento usando seletores estáveis (não dependem de hashes CSS)
+     * Tenta múltiplas estratégias para maior robustez
+     */
+    function findElementStable(parent, strategies) {
+        for (const strategy of strategies) {
+            try {
+                // Se a estratégia contém [class*="..."], tenta encontrar todos os elementos e filtrar
+                if (strategy.includes('[class*=')) {
+                    const tag = strategy.split('[')[0]; // Extrai a tag (ex: "button")
+                    const classPattern = strategy.match(/class\*="([^"]+)"/)?.[1]; // Extrai o padrão da classe
+                    
+                    if (tag && classPattern) {
+                        const allElements = parent.querySelectorAll(tag);
+                        for (const el of allElements) {
+                            // Verifica se alguma classe contém o padrão
+                            if (el.className && el.className.includes(classPattern)) {
+                                return el;
+                            }
+                        }
+                    }
+                }
+                
+                // Tenta o seletor normal
+                const element = parent.querySelector(strategy);
+                if (element) return element;
+            } catch (error) {
+                console.warn(`⚠️ Erro ao tentar estratégia "${strategy}":`, error);
+                continue;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Encontra o botão ativo da conversa usando seletores estáveis
+     * Não depende de classes CSS com hashes
+     * @returns {HTMLElement|null} Botão ativo ou null
+     */
+    function findActiveConversationButton() {
+        // Estratégia 1: Procura por botão com aria-pressed="true" ou classe que contém "active"
+        const allButtons = document.querySelectorAll('li[data-conversation-id] button');
+        for (const button of allButtons) {
+            if (button.getAttribute('aria-pressed') === 'true' || 
+                button.classList.toString().includes('active')) {
+                return button;
+            }
+        }
+        
+        // Estratégia 2: Fallback - usa seletor com hash atual (será atualizado se mudar)
+        const fallbackButton = document.querySelector('li[data-conversation-id] button._card--active_1fg2q_18');
+        if (fallbackButton) return fallbackButton;
+        
+        return null;
+    }
+
     function extractConversationData(conversationElement) {
         try {
             const conversationId = conversationElement.getAttribute('data-conversation-id');
-            if (!conversationId) return null;
+            if (!conversationId) {
+                console.warn('⚠️ Conversa sem ID');
+                return null;
+            }
 
-            // Encontra o botão card dentro do li
-            const cardButton = conversationElement.querySelector('button._card_1z13v_1');
-            if (!cardButton) return null;
+            // ESTRATÉGIA 1: Encontra o botão card usando estrutura HTML estável
+            // O botão está sempre dentro de li[data-conversation-id] e tem classe que contém "_card_"
+            let cardButton = null;
+            
+            // Primeiro tenta encontrar todos os botões e verifica qual tem a classe correta
+            const allButtons = conversationElement.querySelectorAll('button');
+            for (const btn of allButtons) {
+                if (btn.className && (btn.className.includes('_card_') || btn.className.includes('_card_1fg2q_1'))) {
+                    cardButton = btn;
+                    break;
+                }
+            }
+            
+            // Se não encontrou, tenta com seletores
+            if (!cardButton) {
+                cardButton = findElementStable(conversationElement, [
+                    'button._card_1fg2q_1',     // Hash atual específico
+                    'button[type="button"]',    // Mais genérico - botão dentro do li
+                    'button'                    // Último recurso - qualquer botão
+                ]);
+            }
+            
+            if (!cardButton) {
+                console.warn('⚠️ Botão card não encontrado para conversa:', conversationId);
+                console.log('🔍 HTML da conversa:', conversationElement.outerHTML.substring(0, 500));
+                // Tenta encontrar todos os botões dentro do elemento
+                const allButtons = conversationElement.querySelectorAll('button');
+                console.log('🔍 Botões encontrados no elemento:', allButtons.length);
+                allButtons.forEach((btn, idx) => {
+                    console.log(`  Botão ${idx}:`, {
+                        classes: btn.className,
+                        type: btn.type,
+                        outerHTML: btn.outerHTML.substring(0, 200)
+                    });
+                });
+                return null;
+            }
+            
+            console.log('✅ Botão card encontrado para conversa:', conversationId, {
+                classes: cardButton.className,
+                type: cardButton.type
+            });
 
-            // Extrai nome do cliente - está em .card__meta > p[data-testid="kiwi-text"] (primeiro p)
-            const cardMeta = cardButton.querySelector('._card__meta_1z13v_65');
-            const userNameElement = cardMeta?.querySelector('p[data-testid="kiwi-text"]');
+            // ESTRATÉGIA 2: Extrai nome usando estrutura e data-testid (estável)
+            // Estrutura: button > div.card__info > div.card__header > div.card__meta > p[data-testid="kiwi-text"]
+            const userNameElement = findElementStable(cardButton, [
+                'div[class*="card__meta"] p[data-testid="kiwi-text"]',  // Usa atributo estável
+                'div[class*="card__header"] p[data-testid="kiwi-text"]', // Fallback
+                'p[data-testid="kiwi-text"]'                             // Último recurso
+            ]);
             const userName = userNameElement?.textContent?.trim() || 'Sem nome';
 
-            // Extrai data da última mensagem - está em .card__date > p[data-testid="kiwi-text"]
-            const cardDate = cardButton.querySelector('._card__date_1z13v_75');
-            const dateElement = cardDate?.querySelector('p[data-testid="kiwi-text"]');
+            // ESTRATÉGIA 3: Extrai data usando estrutura estável
+            // Estrutura: button > div.card__info > div.card__header > div.card__date > p[data-testid="kiwi-text"]
+            const dateElement = findElementStable(cardButton, [
+                'div[class*="card__date"] p[data-testid="kiwi-text"]',  // Usa atributo estável
+                'div[class*="card__header"] div[class*="date"] p[data-testid="kiwi-text"]', // Fallback
+                'div[class*="date"] p[data-testid="kiwi-text"]'          // Último recurso
+            ]);
             const rawLastMessageDate = dateElement?.textContent?.trim() || '';
             
             // Converte a data para formato legível (DD/MM/YYYY HH:MM)
-            // Suporta: "22:38" (hora apenas), "26 dez." (data e mês), etc.
             const lastMessageDate = parseConversationDate(rawLastMessageDate);
             
             if (!rawLastMessageDate) {
-                console.warn('⚠️ lastMessageDate vazio para conversa:', conversationId, {
-                    cardDateFound: !!cardDate,
-                    dateElementFound: !!dateElement,
-                    cardDateHTML: cardDate?.outerHTML?.substring(0, 200)
-                });
-            } else if (rawLastMessageDate !== lastMessageDate) {
-                // Data convertida com sucesso (log removido para reduzir ruído)
-            } else {
-                console.log('ℹ️ Data não foi convertida (já está no formato correto ou não reconhecido):', {
-                    conversationId,
-                    raw: rawLastMessageDate,
-                    formatted: lastMessageDate
-                });
+                console.warn('⚠️ lastMessageDate vazio para conversa:', conversationId);
             }
 
-            // Extrai última mensagem - está em .last-message__text ou .last-message > p[data-testid="kiwi-text"]
-            const lastMessageContainer = cardButton.querySelector('._last-message_14xs4_1');
+            // ESTRATÉGIA 4: Extrai última mensagem usando estrutura estável
+            // Estrutura: button > div > div.last-message > p[data-testid="kiwi-text"] ou .last-message__text
+            const lastMessageContainer = findElementStable(cardButton, [
+                'div[class*="last-message"]',  // Procura por classe que contém "last-message"
+                'div[class*="message"]'         // Fallback mais genérico
+            ]);
+            
             let lastMessage = '';
             if (lastMessageContainer) {
-                const messageText = lastMessageContainer.querySelector('._last-message__text_14xs4_11');
-                if (messageText) {
-                    lastMessage = messageText.textContent?.trim() || '';
-                } else {
-                    // Fallback: pega o primeiro p dentro de last-message
-                    const fallbackMessage = lastMessageContainer.querySelector('p[data-testid="kiwi-text"]');
-                    lastMessage = fallbackMessage?.textContent?.trim() || '';
-                }
+                const messageText = findElementStable(lastMessageContainer, [
+                    'p[class*="last-message__text"]',  // Texto específico
+                    'p[data-testid="kiwi-text"]',     // Usa atributo estável
+                    'p'                                // Último recurso
+                ]);
+                lastMessage = messageText?.textContent?.trim() || '';
             }
 
-            // Extrai informações do anúncio - está em .ad__price > p[data-testid="kiwi-text"]
-            const adPrice = cardButton.querySelector('._ad__price_1yxel_44');
+            // ESTRATÉGIA 5: Extrai informações do anúncio usando estrutura estável
+            // Estrutura: button > div > div.ad > div.ad__price > p[data-testid="kiwi-text"]
+            const adPrice = findElementStable(cardButton, [
+                'div[class*="ad__price"]',  // Procura por classe que contém "ad__price"
+                'div[class*="ad"] div[class*="price"]', // Fallback
+                'div[class*="ad"]'          // Último recurso
+            ]);
             const adInfo = adPrice?.querySelector('p[data-testid="kiwi-text"]');
             const adInfoText = adInfo?.textContent?.trim() || '';
 
             // Extrai número de telefone da mensagem (se houver)
             let phoneNumber = '';
-            // Procura por padrões de telefone na última mensagem
             const phonePattern = /(\+?\d{1,3}[\s.-]?)?\(?\d{2,3}\)?[\s.-]?\d{3}[\s.-]?\d{3}[\s.-]?\d{3}/g;
             const phoneMatch = lastMessage.match(phonePattern);
             if (phoneMatch) {
                 phoneNumber = phoneMatch[0].replace(/\s/g, '').replace(/\./g, '').replace(/-/g, '');
             }
 
-            // Verifica se está lida - verifica se o botão tem classe _card--active_1z13v_18
-            const isRead = cardButton.classList.contains('_card--active_1z13v_18') || 
+            // ESTRATÉGIA 6: Verifica se está lida usando múltiplos métodos
+            // Não depende de classes com hash - usa estrutura e atributos
+            const isRead = cardButton.getAttribute('aria-pressed') === 'true' || 
+                          cardButton.classList.toString().includes('active') ||
                           !conversationElement.classList.contains('unread');
 
-            // Extrai número de mensagens não lidas - badge dentro de .card__date
-            const badge = cardDate?.querySelector('._kiwi-badge_111w6_4._kiwi-badge__number_111w6_1');
+            // ESTRATÉGIA 7: Extrai badge de mensagens não lidas usando atributos estáveis
+            // Badge tem role="region" e data-kiwi-badge="number" ou classe que contém "badge__number"
+            const badge = findElementStable(cardButton, [
+                'div[role="region"][class*="badge__number"]',  // Usa atributos estáveis
+                'div[data-kiwi-badge="number"]',                 // Atributo data estável
+                'div[class*="badge"][class*="number"]',          // Classes que contêm palavras-chave
+                'div[role="region"]'                             // Último recurso
+            ]);
             const unreadCount = badge ? parseInt(badge.textContent?.trim() || '0', 10) : 0;
             const hasUnread = unreadCount > 0;
 
-            // Extrai imagem do anúncio (se houver)
-            const adImage = cardButton.querySelector('._ad__image_1yxel_14');
+            // ESTRATÉGIA 8: Extrai imagem do anúncio usando estrutura estável
+            const adImage = findElementStable(cardButton, [
+                'img[class*="ad__image"]',  // Imagem dentro de ad
+                'div[class*="ad"] img',     // Fallback
+                'img'                        // Último recurso
+            ]);
             const adImageUrl = adImage?.getAttribute('src') || '';
 
             const conversationData = {
@@ -1073,9 +1303,16 @@
                 metadata: {
                     extractedAt: new Date().toISOString(),
                     pageUrl: window.location.href,
-                    cardActive: cardButton.classList.contains('_card--active_1z13v_18')
+                    cardActive: cardButton.classList.toString().includes('active')
                 }
             };
+            
+            console.log('✅ Dados extraídos com sucesso para conversa:', conversationId, {
+                userName,
+                lastMessage: lastMessage?.substring(0, 50),
+                unreadCount,
+                hasUnread
+            });
             
             return conversationData;
         } catch (error) {
@@ -1097,10 +1334,25 @@
         }
         
         const data = extractConversationData(conversationElement);
-        if (!data || !data.conversationId) return;
+        if (!data || !data.conversationId) {
+            console.warn('⚠️ Dados não extraídos ou sem conversationId para elemento:', conversationElement);
+            console.log('🔍 Tentando extrair manualmente...');
+            const manualId = conversationElement.getAttribute('data-conversation-id');
+            console.log('🔍 ID manual:', manualId);
+            return;
+        }
+        
+        console.log('✅ Dados extraídos com sucesso:', {
+            conversationId: data.conversationId,
+            userName: data.userName,
+            lastMessage: data.lastMessage?.substring(0, 50),
+            hasUnread: data.hasUnread,
+            unreadCount: data.unreadCount
+        });
 
         // Verifica se já foi processada nesta sessão
         if (monitoredConversations.has(data.conversationId)) {
+            console.log(`⏭️ Conversa ${data.conversationId} já foi processada nesta sessão`);
             return;
         }
 
@@ -1157,54 +1409,100 @@
      * Monitora todas as conversas na lista
      */
     async function monitorConversationsList() {
-        // Verifica se o agente está logado antes de processar
-        const isLoggedIn = await checkAgentLoggedIn();
-        if (!isLoggedIn) {
-            console.warn('⚠️ Agente não está logado. Não é possível monitorar conversas.');
-            return;
-        }
+        // Log imediato para garantir que a função está sendo chamada
+        console.log('🔍 [monitorConversationsList] ========== FUNÇÃO CHAMADA ==========');
+        console.log('🔍 [monitorConversationsList] Timestamp:', new Date().toISOString());
         
-        // Se o AI está trabalhando, ignora verificação de novas conversas
-        if (isAIWorking) {
-            console.log('⏸️ AI está trabalhando, ignorando verificação de novas conversas...');
-            return;
-        }
-        
-        // Busca a lista de conversas usando o seletor específico
-        let conversationsList = document.querySelector('[data-testid="conversation-list-component"]');
-        
-        // Fallback: busca qualquer elemento que contenha li com data-conversation-id
-        if (!conversationsList) {
-            const items = document.querySelectorAll('li[data-conversation-id]');
-            if (items.length > 0) {
-                conversationsList = items[0]?.closest('ul') || items[0]?.closest('div') || items[0]?.parentElement;
+        try {
+            console.log('🔍 [monitorConversationsList] INÍCIO do try-catch');
+            console.log('🔍 [monitorConversationsList] isAIWorking:', typeof isAIWorking !== 'undefined' ? isAIWorking : 'UNDEFINED');
+            
+            // Verifica se o agente está logado antes de processar
+            console.log('🔍 [monitorConversationsList] Verificando login...');
+            const isLoggedIn = await checkAgentLoggedIn();
+            console.log('🔍 [monitorConversationsList] Agente logado?', isLoggedIn);
+            
+            if (!isLoggedIn) {
+                console.warn('⚠️ [monitorConversationsList] Agente não está logado. Não é possível monitorar conversas.');
+                return;
             }
-        }
-        
-        if (!conversationsList) {
-            // Fallback: busca diretamente os elementos li
-            const conversationItems = document.querySelectorAll('li[data-conversation-id]');
-            if (conversationItems.length > 0) {
-                console.log('ℹ️ Usando fallback: processando', conversationItems.length, 'conversas encontradas diretamente');
-                conversationItems.forEach(async (item) => {
-                    const conversationId = item.getAttribute('data-conversation-id');
-                    if (conversationId && !monitoredConversations.has(conversationId)) {
-                        await processAndSaveConversation(item);
+            
+            // Se o AI está trabalhando, ignora verificação de novas conversas
+            if (isAIWorking) {
+                console.log('⏸️ [monitorConversationsList] AI está trabalhando, ignorando verificação de novas conversas...');
+                return;
+            }
+            
+            // Busca a lista de conversas usando o seletor específico
+            console.log('🔍 [monitorConversationsList] Buscando lista de conversas...');
+            let conversationsList = document.querySelector('[data-testid="conversation-list-component"]');
+            console.log('🔍 [monitorConversationsList] Lista encontrada?', !!conversationsList);
+            
+            // Fallback: busca qualquer elemento que contenha li com data-conversation-id
+            if (!conversationsList) {
+                console.log('🔍 [monitorConversationsList] Tentando fallback...');
+                const items = document.querySelectorAll('li[data-conversation-id]');
+                console.log('🔍 [monitorConversationsList] Items encontrados:', items.length);
+                if (items.length > 0) {
+                    conversationsList = items[0]?.closest('ul') || items[0]?.closest('div') || items[0]?.parentElement;
+                    console.log('🔍 [monitorConversationsList] Lista encontrada via fallback?', !!conversationsList);
+                }
+            }
+            
+            if (!conversationsList) {
+                // Fallback: busca diretamente os elementos li
+                console.log('🔍 [monitorConversationsList] Tentando fallback direto...');
+                const conversationItems = document.querySelectorAll('li[data-conversation-id]');
+                console.log('🔍 [monitorConversationsList] Conversas encontradas diretamente:', conversationItems.length);
+                if (conversationItems.length > 0) {
+                    console.log('ℹ️ [monitorConversationsList] Usando fallback: processando', conversationItems.length, 'conversas encontradas diretamente');
+                    for (const item of conversationItems) {
+                        const conversationId = item.getAttribute('data-conversation-id');
+                        if (conversationId && !monitoredConversations.has(conversationId)) {
+                            await processAndSaveConversation(item);
+                        }
                     }
-                });
+                }
+                return;
             }
-            return;
-        }
 
-        // Busca todos os li dentro da lista
-        const conversationItems = conversationsList.querySelectorAll('li[data-conversation-id]');
-        
-        conversationItems.forEach(async (item) => {
-            const conversationId = item.getAttribute('data-conversation-id');
-            if (conversationId && !monitoredConversations.has(conversationId)) {
-                await processAndSaveConversation(item);
+            // Busca todos os li dentro da lista
+            const conversationItems = conversationsList.querySelectorAll('li[data-conversation-id]');
+            
+            console.log(`📊 [monitorConversationsList] Encontradas ${conversationItems.length} conversas na lista`);
+            console.log(`📊 [monitorConversationsList] Conversas já monitoradas: ${monitoredConversations.size}`);
+            
+            let processedCount = 0;
+            let skippedCount = 0;
+            let errorCount = 0;
+            
+            for (const item of conversationItems) {
+                const conversationId = item.getAttribute('data-conversation-id');
+                if (!conversationId) {
+                    console.warn('⚠️ [monitorConversationsList] Item sem conversationId:', item);
+                    continue;
+                }
+                
+                if (monitoredConversations.has(conversationId)) {
+                    skippedCount++;
+                    continue;
+                }
+                
+                try {
+                    console.log(`🔄 [monitorConversationsList] Processando conversa: ${conversationId}`);
+                    await processAndSaveConversation(item);
+                    processedCount++;
+                } catch (error) {
+                    console.error(`❌ [monitorConversationsList] Erro ao processar conversa ${conversationId}:`, error);
+                    errorCount++;
+                }
             }
-        });
+            
+            console.log(`✅ [monitorConversationsList] Processamento concluído: ${processedCount} processadas, ${skippedCount} ignoradas, ${errorCount} erros`);
+        } catch (error) {
+            console.error('❌ [monitorConversationsList] Erro na função:', error);
+            console.error('❌ [monitorConversationsList] Stack:', error.stack);
+        }
     }
 
     /**
@@ -1218,8 +1516,8 @@
             return;
         }
         
-        mutations.forEach((mutation) => {
-            mutation.addedNodes.forEach(async (node) => {
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
                 // Verifica se é um elemento <li> com data-conversation-id
                 if (node.nodeType === 1) { // Element node
                     // Verifica se o próprio nó é um <li>
@@ -1233,17 +1531,17 @@
                     // Verifica filhos <li> dentro do nó adicionado
                     const liChildren = node.querySelectorAll?.('li[data-conversation-id]');
                     if (liChildren && liChildren.length > 0) {
-                        liChildren.forEach(async (li) => {
+                        for (const li of liChildren) {
                             const conversationId = li.getAttribute('data-conversation-id');
                             if (conversationId && !monitoredConversations.has(conversationId)) {
                                 console.log('🆕 Novo <li> filho detectado:', conversationId);
                                 await processAndSaveConversation(li);
                             }
-                        });
+                        }
                     }
                 }
-            });
-        });
+            }
+        }
         
         // Não chama monitorConversationsList aqui para evitar loops
         // O observer já detecta mudanças, não precisa verificar toda a lista novamente
@@ -1271,12 +1569,22 @@
         const unreadConversations = [];
 
         allConversations.forEach((li) => {
-            const cardButton = li.querySelector('button._card_1z13v_1');
+            // Usa seletores estáveis
+            const cardButton = findElementStable(li, [
+                'button[class*="_card_"]',  // Mais específico - botão com classe que contém "_card_"
+                'button._card_1fg2q_1',      // Fallback para hash atual
+                'button[type="button"]',     // Mais genérico
+                'button'                    // Último recurso
+            ]);
             if (!cardButton) return;
 
-            // Verifica se tem badge de mensagens não lidas
-            const cardDate = cardButton.querySelector('._card__date_1z13v_75');
-            const badge = cardDate?.querySelector('._kiwi-badge_111w6_4._kiwi-badge__number_111w6_1');
+            // Verifica se tem badge de mensagens não lidas usando seletores estáveis
+            const badge = findElementStable(cardButton, [
+                'div[role="region"][class*="badge__number"]',
+                'div[data-kiwi-badge="number"]',
+                'div[class*="badge"][class*="number"]',
+                'div[role="region"]'
+            ]);
             
             if (badge) {
                 const unreadCount = parseInt(badge.textContent?.trim() || '0', 10);
@@ -1302,7 +1610,13 @@
             return;
         }
 
-        const cardButton = conversationElement.querySelector('button._card_1z13v_1');
+        // Usa seletores estáveis
+        const cardButton = findElementStable(conversationElement, [
+            'button[class*="_card_"]',  // Mais específico - botão com classe que contém "_card_"
+            'button._card_1fg2q_1',     // Fallback para hash atual
+            'button[type="button"]',    // Mais genérico
+            'button'                    // Último recurso
+        ]);
         if (!cardButton) return;
 
         console.log('🖱️ Clicando automaticamente na conversa não lida:', conversationId);
@@ -1350,7 +1664,7 @@
         }
 
         // Verifica se há um chat aberto atualmente
-        const activeButton = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
+        const activeButton = findActiveConversationButton();
         if (activeButton) {
             // Há um chat aberto, não processa novas conversas até que este seja fechado
             return;
@@ -1666,9 +1980,9 @@
         );
         
         if (!isWrapper) {
-            // Tenta encontrar o wrapper pai
-            targetElement = element.closest('._message-container__wrapper_') || 
-                          element.closest('[class*="message-container__wrapper"]') ||
+            // Tenta encontrar o wrapper pai (tenta seletor estável primeiro)
+            targetElement = element.closest('[class*="message-container__wrapper"]') || 
+                          element.closest('._message-container__wrapper_') ||  // Fallback para hash atual
                           element.parentElement; // Usa o pai como fallback
             
             // Se o pai não parece ser um wrapper, usa o elemento original
@@ -1777,7 +2091,7 @@
 
         // Obtém o ID da conversa atual - busca pelo botão ativo na lista
         let conversationId = 'unknown';
-        const activeButton = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
+        const activeButton = findActiveConversationButton();
         if (activeButton) {
             const activeLi = activeButton.closest('li[data-conversation-id]');
             conversationId = activeLi?.getAttribute('data-conversation-id') || 'unknown';
@@ -1794,8 +2108,11 @@
         messageContainers.forEach((container, index) => {
             try {
                 // Verifica se é mensagem do cliente ou do agente
-                // Cliente tem classe: _message-container__box--is-from-other_ssm3t_45
-                const isFromOther = container.classList.contains('_message-container__box--is-from-other_ssm3t_45');
+                // Cliente tem classe que contém "is-from-other" (verificação estável)
+                const isFromOther = container.classList && (
+                    container.classList.toString().includes('is-from-other') ||
+                    container.classList.contains('_message-container__box--is-from-other_ssm3t_45') // Fallback para hash atual
+                );
                 const sender = isFromOther ? 'client' : 'agent';
 
                 // Determina se é lead baseado na primeira mensagem
@@ -1839,8 +2156,13 @@
                     }
                 }
 
-                // Extrai conteúdo da mensagem
-                const messageContent = container.querySelector('._message-text__content_136tk_1');
+                // Extrai conteúdo da mensagem usando seletores estáveis
+                const messageContent = findElementStable(container, [
+                    'div[class*="message-text__content"]',  // Procura por classe que contém "message-text__content"
+                    'p[class*="message-text"]',              // Fallback mais genérico
+                    '._message-text__content_136tk_1',       // Fallback para hash atual
+                    'p[data-testid="testId"]'                // Fallback por atributo
+                ]);
                 let content = messageContent?.textContent?.trim() || '';
 
                 // Se não encontrou, tenta outros seletores
@@ -1849,17 +2171,22 @@
                     content = fallbackContent?.textContent?.trim() || '';
                 }
 
-                // Extrai hora da mensagem
-                const messageInfo = container.querySelector('._message-container__info_ssm3t_108');
+                // Extrai hora da mensagem usando seletores estáveis
+                const messageInfo = findElementStable(container, [
+                    'div[class*="message-container__info"]',  // Procura por classe que contém "message-container__info"
+                    'span[class*="message-info"]',            // Fallback mais genérico
+                    '._message-container__info_ssm3t_108',   // Fallback para hash atual
+                    'span[class*="time"]'                     // Último recurso
+                ]);
                 const time = messageInfo?.textContent?.trim() || '';
 
                 // Encontra o divisor de dia mais próximo anterior
                 // Passa o wrapper da mensagem para buscar corretamente no container
-                // Tenta múltiplos seletores para encontrar o wrapper
-                let messageWrapper = container.closest('._message-container__wrapper_');
+                // Tenta múltiplos seletores para encontrar o wrapper (tenta estável primeiro)
+                let messageWrapper = container.closest('[class*="message-container__wrapper"]');
                 if (!messageWrapper) {
-                    // Tenta seletor alternativo com hash variável
-                    messageWrapper = container.closest('[class*="_message-container__wrapper"]');
+                    // Fallback para hash atual
+                    messageWrapper = container.closest('._message-container__wrapper_');
                 }
                 if (!messageWrapper) {
                     // Tenta buscar o pai direto que pode ser o wrapper
@@ -1949,7 +2276,7 @@
     let openChatCheckTimeout = null;
     const openChatMessagesObserver = new MutationObserver(() => {
         // Verifica se há um chat aberto
-        const activeButton = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
+        const activeButton = findActiveConversationButton();
         if (!activeButton) return;
         
         const activeLi = activeButton.closest('li[data-conversation-id]');
@@ -2053,18 +2380,25 @@
             const newMessages = messages.filter(msg => !processedMessageIds.has(msg.messageId));
             
             if (newMessages.length > 0 || currentCount > lastCount) {
-                console.log('📨 Novas mensagens detectadas no chat aberto!', {
+                console.log('📨 [checkForNewMessagesInOpenChat] Novas mensagens detectadas no chat aberto!', {
                     conversationId,
                     lastCount,
                     currentCount,
                     newMessagesCount: newMessages.length,
-                    newMessageIds: newMessages.map(m => m.messageId).slice(0, 3)
+                    newMessageIds: newMessages.map(m => m.messageId).slice(0, 3),
+                    novasMensagens: newMessages.map(m => ({ sender: m.sender, content: m.content.substring(0, 50) }))
                 });
                 
                 // Atualiza contagem e mensagens processadas ANTES de processar
                 lastMessageCount.set(conversationId, currentCount);
                 newMessages.forEach(msg => processedMessageIds.add(msg.messageId));
                 lastProcessedMessages.set(conversationId, processedMessageIds);
+                
+                // Se o processamento foi cancelado anteriormente, permite processar novamente
+                if (currentProcessingChatId !== conversationId) {
+                    console.log('🔄 [checkForNewMessagesInOpenChat] Processamento anterior foi cancelado, permitindo novo processamento');
+                    currentProcessingChatId = conversationId;
+                }
                 
                 // Processa as novas mensagens (sem resetar o currentProcessingChatId)
                 await processNewMessagesInOpenChat(conversationId, messages);
@@ -2082,7 +2416,12 @@
      * Processa novas mensagens no chat já aberto
      */
     async function processNewMessagesInOpenChat(conversationId, messages) {
-        console.log('🔄 Processando novas mensagens no chat aberto:', conversationId);
+        console.log('🔄 [processNewMessagesInOpenChat] Processando novas mensagens no chat aberto:', conversationId);
+        console.log('🔄 [processNewMessagesInOpenChat] Total de mensagens:', messages.length);
+        console.log('🔄 [processNewMessagesInOpenChat] Última mensagem:', messages.length > 0 ? {
+            sender: messages[messages.length - 1].sender,
+            content: messages[messages.length - 1].content.substring(0, 100)
+        } : 'N/A');
         
         // Não reseta currentProcessingChatId para permitir processamento contínuo
         
@@ -2306,24 +2645,76 @@
      * Processa o chat aberto: extrai mensagens e salva
      */
     async function processOpenChat() {
-        // Obtém o ID da conversa atual
-        const activeButton = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
-        if (!activeButton) return;
-
-        const activeLi = activeButton.closest('li[data-conversation-id]');
-        const conversationId = activeLi?.getAttribute('data-conversation-id');
+        // Verifica se há uma conversa aberta primeiro - múltiplas verificações para robustez
+        const conversationDetail = document.querySelector('[data-testid="conversation-detail-component"]');
+        const hasAnyOpenChat = !!document.querySelector('section._chat__conversation_1ita9_33, [data-testid="conversation-detail-component"]');
         
-        if (!conversationId) return;
+        if (!conversationDetail && !hasAnyOpenChat) {
+            console.log('⚠️ [processOpenChat] Nenhuma conversa aberta detectada no início da função');
+            return;
+        }
+        
+        // Se há qualquer indicação de conversa aberta, continua
+        console.log('✅ [processOpenChat] Conversa aberta detectada no início - continuando processamento');
+        
+        // Obtém o ID da conversa atual - tenta múltiplas estratégias
+        let conversationId = null;
+        const activeButton = findActiveConversationButton();
+        
+        if (activeButton) {
+            const activeLi = activeButton.closest('li[data-conversation-id]');
+            conversationId = activeLi?.getAttribute('data-conversation-id');
+        }
+        
+        // Se não conseguiu pelo botão ativo, tenta pela função getCurrentConversationId
+        if (!conversationId) {
+            conversationId = getCurrentConversationId();
+        }
+        
+        // Se ainda não conseguiu, mas há conversa aberta, tenta encontrar qualquer conversa na lista
+        // (fallback - melhor processar do que perder)
+        if (!conversationId && conversationDetail) {
+            console.log('⚠️ [processOpenChat] Não conseguiu identificar conversa pelo botão, tentando fallback...');
+            // Tenta encontrar a primeira conversa que pode estar aberta
+            const allLis = document.querySelectorAll('li[data-conversation-id]');
+            for (const li of allLis) {
+                const liId = li.getAttribute('data-conversation-id');
+                // Se esta conversa está sendo processada, usa ela
+                if (liId && currentProcessingChatId === liId) {
+                    conversationId = liId;
+                    console.log('✅ [processOpenChat] Encontrou conversa pelo currentProcessingChatId:', conversationId);
+                    break;
+                }
+            }
+        }
+        
+        if (!conversationId) {
+            console.warn('⚠️ [processOpenChat] Não foi possível identificar conversa, mas há conversa aberta. Usando currentProcessingChatId como fallback.');
+            // Último recurso: usa o currentProcessingChatId se existir
+            if (currentProcessingChatId) {
+                conversationId = currentProcessingChatId;
+            } else {
+                console.error('❌ [processOpenChat] Não foi possível identificar conversa e não há currentProcessingChatId');
+                return;
+            }
+        }
 
         // Evita processar o mesmo chat múltiplas vezes (mas permite processar novas mensagens)
         if (currentProcessingChatId === conversationId) {
+            console.log('ℹ️ [processOpenChat] Chat já está sendo processado, verificando novas mensagens...');
             // Se já está processando, verifica se há novas mensagens
             checkForNewMessagesInOpenChat(conversationId);
             return;
         }
 
+        // Define o ID da conversa que está sendo processada
         currentProcessingChatId = conversationId;
-        console.log('📥 Chat aberto detectado:', conversationId);
+        console.log('📥 [processOpenChat] Chat aberto detectado - INICIANDO PROCESSAMENTO:', conversationId, {
+            encontradoPorBotao: !!activeButton,
+            encontradoPorGetCurrent: conversationId === getCurrentConversationId(),
+            currentProcessingChatId: currentProcessingChatId,
+            conversationDetailExiste: !!conversationDetail
+        });
         
         // Inicializa contagem de mensagens
         const { messages } = extractChatMessages();
@@ -2335,15 +2726,57 @@
 
         // Aguarda 15 segundos após abrir o chat
         setTimeout(async () => {
-            console.log('📥 Processando chat aberto após 15 segundos...');
+            console.log('📥 [processOpenChat] Processando chat aberto após 15 segundos...');
+            console.log('🔍 [processOpenChat] Verificando se conversa ainda está aberta...');
 
-            // Verifica se ainda está no mesmo chat
-            const currentActive = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
-            if (!currentActive || currentActive.closest('li[data-conversation-id]')?.getAttribute('data-conversation-id') !== conversationId) {
-                console.log('⚠️ Chat mudou, cancelando processamento');
+            // LÓGICA ULTRA-ROBUSTA: SEMPRE processa se há conversa aberta
+            // Múltiplas verificações para garantir que não cancela incorretamente
+            const conversationDetail = document.querySelector('[data-testid="conversation-detail-component"]');
+            const hasActiveButton = !!findActiveConversationButton();
+            const hasAnyOpenChat = !!document.querySelector('section._chat__conversation_1ita9_33, [data-testid="conversation-detail-component"]');
+            
+            console.log('🔍 [processOpenChat] Verificações de conversa aberta:', {
+                conversationDetail: !!conversationDetail,
+                hasActiveButton: hasActiveButton,
+                hasAnyOpenChat: hasAnyOpenChat,
+                conversationId: conversationId,
+                currentProcessingChatId: currentProcessingChatId
+            });
+            
+            // ÚNICA CONDIÇÃO DE CANCELAMENTO: Não há NENHUMA indicação de conversa aberta
+            if (!conversationDetail && !hasAnyOpenChat) {
+                console.log('⚠️ [processOpenChat] Nenhuma conversa aberta detectada após 15s, cancelando processamento');
+                console.log('🔍 [processOpenChat] Estado atual:', {
+                    conversationId,
+                    currentProcessingChatId,
+                    url: window.location.href
+                });
                 currentProcessingChatId = null;
                 return;
             }
+            
+            // Se chegou aqui, há conversa aberta - SEMPRE continua processamento
+            // NUNCA cancela se há qualquer indicação de conversa aberta
+            console.log('✅ [processOpenChat] Conversa confirmada como aberta - CONTINUANDO PROCESSAMENTO SEMPRE');
+            console.log('✅ [processOpenChat] Processando chat:', conversationId);
+            console.log('✅ [processOpenChat] NÃO SERÁ CANCELADO - conversa está aberta');
+            
+            // Log informativo (não bloqueia processamento)
+            const currentConversationId = getCurrentConversationId();
+            const currentActive = findActiveConversationButton();
+            const currentActiveLi = currentActive?.closest('li[data-conversation-id]');
+            const verifiedConversationId = currentActiveLi?.getAttribute('data-conversation-id') || currentConversationId;
+            
+            console.log('🔍 [processOpenChat] Informação de debug (não bloqueia processamento):', {
+                esperado: conversationId,
+                atual: verifiedConversationId,
+                conversationDetailExiste: !!conversationDetail,
+                hasAnyOpenChat: hasAnyOpenChat,
+                currentProcessingChatId: currentProcessingChatId
+            });
+            
+            // GARANTIA FINAL: Se chegou aqui, SEMPRE processa, independente de qualquer outra verificação
+            console.log('🚀 [processOpenChat] INICIANDO PROCESSAMENTO - não será cancelado');
 
             // Extrai número de telefone - tenta múltiplas fontes
             let phoneNumber = '';
@@ -2425,14 +2858,22 @@
             // Extrai todas as mensagens, o link do anúncio e o tipo de conversa (lead/não-lead)
             const { messages, propertyUrl, isLead } = extractChatMessages();
             
+            // VERIFICAÇÃO FINAL: Se há conversa aberta, SEMPRE continua, mesmo sem mensagens
+            const stillHasOpenChat = !!document.querySelector('[data-testid="conversation-detail-component"]');
+            
             if (messages.length === 0) {
-                console.log('⚠️ Nenhuma mensagem encontrada no chat');
-                currentProcessingChatId = null;
-                return;
+                if (!stillHasOpenChat) {
+                    console.log('⚠️ Nenhuma mensagem encontrada e conversa fechada, cancelando');
+                    currentProcessingChatId = null;
+                    return;
+                } else {
+                    console.log('⚠️ Nenhuma mensagem encontrada, mas conversa ainda está aberta - continuando processamento');
+                }
             }
 
             console.log(`📨 ${messages.length} mensagens extraídas do chat`);
             console.log('📋 Mensagens:', messages.map(m => ({ sender: m.sender, content: m.content.substring(0, 50) + '...' })));
+            console.log('✅ [processOpenChat] MENSAGENS EXTRAÍDAS - PROCESSAMENTO CONTINUANDO (não será cancelado)');
             if (isLead !== null && isLead !== undefined) {
                 console.log(`🏷️ Tipo de conversa: ${isLead ? 'LEAD' : 'NÃO-LEAD'}`);
             } else {
@@ -2877,17 +3318,204 @@
         return generalSettings;
     }
 
+    // ============================================================================
+    // SISTEMA DE PERSISTÊNCIA DE MENSAGENS PENDENTES
+    // Garante que nenhuma mensagem fique sem resposta, mesmo após refresh
+    // ============================================================================
+    
+    const PENDING_MESSAGES_KEY = 'imobflash_pending_messages';
+    const PENDING_CONVERSATIONS_KEY = 'imobflash_pending_conversations';
+    
+    /**
+     * Salva mensagens/conversas pendentes antes de refresh
+     */
+    async function savePendingMessagesBeforeRefresh() {
+        try {
+            // 1. Verifica se há conversa aberta que precisa ser processada
+            const conversationDetail = document.querySelector('[data-testid="conversation-detail-component"]');
+            if (conversationDetail) {
+                const conversationId = getCurrentConversationId() || currentProcessingChatId;
+                
+                if (conversationId) {
+                    // Extrai informações da conversa atual
+                    const { messages } = extractChatMessages();
+                    
+                    if (messages && messages.length > 0) {
+                        // Verifica se há mensagens não respondidas (última mensagem é do cliente)
+                        const lastMessage = messages[messages.length - 1];
+                        const hasUnrespondedMessage = lastMessage && lastMessage.sender === 'client';
+                        
+                        if (hasUnrespondedMessage) {
+                            // Salva como pendente
+                            const pendingData = {
+                                conversationId: conversationId,
+                                lastMessage: lastMessage.content,
+                                lastMessageTime: lastMessage.time,
+                                lastMessageTimestamp: lastMessage.timestamp,
+                                totalMessages: messages.length,
+                                savedAt: new Date().toISOString(),
+                                reason: 'refresh_before_response'
+                            };
+                            
+                            // Lê pendentes existentes
+                            chrome.storage.local.get([PENDING_CONVERSATIONS_KEY], (result) => {
+                                const pending = result[PENDING_CONVERSATIONS_KEY] || [];
+                                
+                                // Remove se já existe (evita duplicatas)
+                                const filtered = pending.filter(p => p.conversationId !== conversationId);
+                                
+                                // Adiciona novo
+                                filtered.push(pendingData);
+                                
+                                // Salva
+                                chrome.storage.local.set({ [PENDING_CONVERSATIONS_KEY]: filtered }, () => {
+                                    console.log('💾 [savePendingMessages] Mensagem pendente salva antes de refresh:', {
+                                        conversationId,
+                                        lastMessage: lastMessage.content.substring(0, 50) + '...',
+                                        totalPending: filtered.length
+                                    });
+                                });
+                            });
+                        }
+                    }
+                }
+            }
+            
+            // 2. Salva conversas não lidas que ainda não foram processadas
+            const unreadConversations = findUnreadConversations();
+            if (unreadConversations.length > 0) {
+                const unreadData = unreadConversations.map(conv => ({
+                    conversationId: conv.conversationId,
+                    userName: conv.userName,
+                    lastMessage: conv.lastMessage,
+                    savedAt: new Date().toISOString(),
+                    reason: 'unread_before_refresh'
+                }));
+                
+                chrome.storage.local.get([PENDING_CONVERSATIONS_KEY], (result) => {
+                    const pending = result[PENDING_CONVERSATIONS_KEY] || [];
+                    const existingIds = new Set(pending.map(p => p.conversationId));
+                    
+                    // Adiciona apenas as que não estão já pendentes
+                    unreadData.forEach(data => {
+                        if (!existingIds.has(data.conversationId)) {
+                            pending.push(data);
+                        }
+                    });
+                    
+                    chrome.storage.local.set({ [PENDING_CONVERSATIONS_KEY]: pending }, () => {
+                        console.log('💾 [savePendingMessages] Conversas não lidas salvas:', unreadData.length);
+                    });
+                });
+            }
+        } catch (error) {
+            console.error('❌ [savePendingMessages] Erro ao salvar mensagens pendentes:', error);
+        }
+    }
+    
+    /**
+     * Recupera e processa mensagens pendentes após refresh
+     */
+    async function recoverAndProcessPendingMessages() {
+        try {
+            chrome.storage.local.get([PENDING_CONVERSATIONS_KEY], async (result) => {
+                const pending = result[PENDING_CONVERSATIONS_KEY] || [];
+                
+                if (pending.length === 0) {
+                    console.log('✅ [recoverPendingMessages] Nenhuma mensagem pendente encontrada');
+                    return;
+                }
+                
+                console.log(`🔄 [recoverPendingMessages] Recuperando ${pending.length} conversa(s) pendente(s)...`);
+                
+                // Ordena por data (mais antigas primeiro)
+                pending.sort((a, b) => new Date(a.savedAt) - new Date(b.savedAt));
+                
+                // Processa cada conversa pendente
+                for (const pendingConv of pending) {
+                    const { conversationId, reason } = pendingConv;
+                    
+                    console.log(`📥 [recoverPendingMessages] Processando conversa pendente: ${conversationId} (razão: ${reason})`);
+                    
+                    // Aguarda um pouco entre cada processamento
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    
+                    // Tenta encontrar e clicar na conversa
+                    const conversationButton = document.querySelector(`li[data-conversation-id="${conversationId}"] button`);
+                    
+                    if (conversationButton) {
+                        console.log(`🖱️ [recoverPendingMessages] Clicando na conversa pendente: ${conversationId}`);
+                        conversationButton.click();
+                        
+                        // Aguarda a conversa abrir
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        
+                        // Processa a conversa
+                        await processOpenChat();
+                        
+                        // Remove da lista de pendentes após processar
+                        const updatedPending = pending.filter(p => p.conversationId !== conversationId);
+                        chrome.storage.local.set({ [PENDING_CONVERSATIONS_KEY]: updatedPending }, () => {
+                            console.log(`✅ [recoverPendingMessages] Conversa ${conversationId} processada e removida da lista de pendentes`);
+                        });
+                    } else {
+                        console.warn(`⚠️ [recoverPendingMessages] Conversa ${conversationId} não encontrada na lista. Pode ter sido respondida ou removida.`);
+                        
+                        // Remove da lista se não encontrada (pode ter sido respondida)
+                        const updatedPending = pending.filter(p => p.conversationId !== conversationId);
+                        chrome.storage.local.set({ [PENDING_CONVERSATIONS_KEY]: updatedPending });
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('❌ [recoverPendingMessages] Erro ao recuperar mensagens pendentes:', error);
+        }
+    }
+    
+    /**
+     * Remove conversa da lista de pendentes (quando foi respondida com sucesso)
+     */
+    function clearPendingConversation(conversationId) {
+        if (!conversationId) return;
+        
+        chrome.storage.local.get([PENDING_CONVERSATIONS_KEY], (result) => {
+            const pending = result[PENDING_CONVERSATIONS_KEY] || [];
+            const filtered = pending.filter(p => p.conversationId !== conversationId);
+            
+            if (filtered.length < pending.length) {
+                chrome.storage.local.set({ [PENDING_CONVERSATIONS_KEY]: filtered }, () => {
+                    console.log(`✅ [clearPendingConversation] Conversa ${conversationId} removida da lista de pendentes (foi respondida)`);
+                });
+            }
+        });
+    }
+    
+    /**
+     * Wrapper seguro para reload que sempre salva estado antes
+     */
+    async function safeReload(delay = 0) {
+        console.log('💾 [safeReload] Salvando estado antes de refresh...');
+        
+        // Salva mensagens pendentes
+        await savePendingMessagesBeforeRefresh();
+        
+        // Aguarda delay se especificado
+        if (delay > 0) {
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
+        console.log('🔄 [safeReload] Executando reload...');
+        window.location.reload();
+    }
+    
     /**
      * Faz refresh imediatamente após agente IA enviar mensagem (sempre, independente de configuração)
      */
     async function refreshAfterAIMessage() {
         console.log('🔄 Agente IA enviou mensagem, fazendo refresh para fechar chat...');
         
-        // Aguarda um pouco antes de recarregar (2 segundos) para garantir que a mensagem foi processada
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        // Recarrega a página
-        window.location.reload();
+        // Usa safeReload que salva estado antes
+        await safeReload(2000);
     }
 
     /**
@@ -2915,11 +3543,8 @@
         if (generalSettings && generalSettings.refresh_after_conversation) {
             console.log('🔄 Refresh após conversa está ativado. Recarregando página...');
             
-            // Aguarda um pouco antes de recarregar (2 segundos)
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            // Recarrega a página
-            window.location.reload();
+            // Usa safeReload que salva estado antes
+            await safeReload(2000);
             return;
         }
 
@@ -3009,9 +3634,32 @@
         }, 6000);
 
         reloadTimeout = setTimeout(() => {
+            // Verifica se há uma conversa sendo processada antes de fazer refresh
+            const hasOpenConversation = !!document.querySelector('[data-testid="conversation-detail-component"]');
+            const hasProcessingChat = currentProcessingChatId !== null;
+            
+            if (hasOpenConversation || hasProcessingChat || isAIWorking) {
+                console.log('⏸️ Refresh cancelado: há conversa sendo processada', {
+                    hasOpenConversation,
+                    hasProcessingChat,
+                    currentProcessingChatId,
+                    isAIWorking
+                });
+                
+                // Reagenda o refresh para mais tarde (5 minutos)
+                console.log('🔄 Reagendando refresh para 5 minutos...');
+                reloadScheduledTime = Date.now() + (5 * 60 * 1000);
+                reloadTimeout = setTimeout(async () => {
+                    console.log('🔄 Executando refresh automático reagendado...');
+                    reloadScheduledTime = null;
+                    await safeReload();
+                }, 5 * 60 * 1000);
+                return;
+            }
+            
             console.log('🔄 Executando refresh automático agendado...');
             reloadScheduledTime = null; // Limpa o timestamp
-            window.location.reload();
+            await safeReload();
         }, randomMs);
         
         // Inicia atualização do countdown
@@ -3149,7 +3797,9 @@
      */
     async function checkAgentLoggedIn() {
         return new Promise((resolve) => {
+            console.log('🔍 [checkAgentLoggedIn] Verificando login...');
             if (typeof chrome === 'undefined' || !chrome.storage) {
+                console.warn('⚠️ [checkAgentLoggedIn] Chrome storage não disponível');
                 resolve(false);
                 return;
             }
@@ -3157,14 +3807,17 @@
             try {
                 chrome.storage.local.get(['agent_login'], (result) => {
                     if (chrome.runtime && chrome.runtime.lastError) {
+                        console.warn('⚠️ [checkAgentLoggedIn] Erro ao acessar storage:', chrome.runtime.lastError);
                         resolve(false);
                         return;
                     }
                     
                     const isLoggedIn = !!(result.agent_login && result.agent_login.id);
+                    console.log('🔍 [checkAgentLoggedIn] Resultado:', isLoggedIn, result.agent_login);
                     resolve(isLoggedIn);
                 });
             } catch (error) {
+                console.error('❌ [checkAgentLoggedIn] Erro:', error);
                 resolve(false);
             }
         });
@@ -3185,6 +3838,13 @@
         
         console.log('✅ Agente logado, iniciando monitoramento...');
         
+        // CRÍTICO: Recupera e processa mensagens pendentes antes de qualquer outra coisa
+        // Isso garante que mensagens não respondidas antes de um refresh sejam processadas
+        console.log('🔄 [init] Verificando mensagens pendentes...');
+        setTimeout(async () => {
+            await recoverAndProcessPendingMessages();
+        }, 3000); // Aguarda 3 segundos para garantir que a página carregou completamente
+        
         // Processa conversa atual
         setTimeout(processConversation, 1500);
 
@@ -3200,7 +3860,7 @@
         // Observer de mensagens já está configurado globalmente acima
         // Configura observer inicialmente se chat já estiver aberto
         setTimeout(() => {
-            const activeButton = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
+            const activeButton = findActiveConversationButton();
             if (activeButton) {
                 const activeLi = activeButton.closest('li[data-conversation-id]');
                 const conversationId = activeLi?.getAttribute('data-conversation-id');
@@ -3290,11 +3950,20 @@
                 if (!hasProcessedExistingConversations) {
                     hasProcessedExistingConversations = true;
                     setTimeout(async () => {
-                        if (!isAIWorking) {
-                            console.log('🔍 Processando conversas existentes...');
-                            await monitorConversationsList();
-                        } else {
-                            console.log('⏸️ AI está trabalhando, ignorando processamento de conversas existentes...');
+                        try {
+                            console.log('🔍 [setupConversationsListMonitoring] Iniciando processamento de conversas existentes...');
+                            console.log('🔍 [setupConversationsListMonitoring] isAIWorking:', isAIWorking);
+                            
+                            if (!isAIWorking) {
+                                console.log('🔍 [setupConversationsListMonitoring] Chamando monitorConversationsList()...');
+                                await monitorConversationsList();
+                                console.log('✅ [setupConversationsListMonitoring] monitorConversationsList() concluída');
+                            } else {
+                                console.log('⏸️ [setupConversationsListMonitoring] AI está trabalhando, ignorando processamento de conversas existentes...');
+                            }
+                        } catch (error) {
+                            console.error('❌ [setupConversationsListMonitoring] Erro ao processar conversas existentes:', error);
+                            console.error('❌ [setupConversationsListMonitoring] Stack:', error.stack);
                         }
                     }, 2000);
                 }
@@ -3400,8 +4069,13 @@
         // Observer para detectar quando o chat é aberto ou fechado
         let lastActiveConversationId = null;
         const chatObserver = new MutationObserver(() => {
-            const activeButton = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
-            const chatSection = document.querySelector('section._chat__conversation_1ita9_33');
+            const activeButton = findActiveConversationButton();
+            // Usa seletor estável baseado em estrutura e atributos, não em classes com hash
+            const chatSection = findElementStable(document, [
+                'section[class*="chat__conversation"]',  // Procura por classe que contém "chat__conversation"
+                'section._chat__conversation_1ita9_33',  // Fallback para hash atual
+                'section[data-testid*="conversation"]'   // Fallback por atributo
+            ]);
             const conversationDetail = document.querySelector('[data-testid="conversation-detail-component"]');
             
             if (activeButton) {
@@ -3491,7 +4165,7 @@
 
         // Verifica se o chat já está aberto na inicialização
         setTimeout(() => {
-            const activeButton = document.querySelector('li[data-conversation-id] button._card--active_1z13v_18');
+            const activeButton = findActiveConversationButton();
             if (activeButton) {
                 const activeLi = activeButton.closest('li[data-conversation-id]');
                 const conversationId = activeLi?.getAttribute('data-conversation-id');
@@ -4185,6 +4859,12 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
                 sendButton.click();
                 console.log('✅ Mensagem enviada pelo Agente IA');
                 
+                // Remove da lista de pendentes já que foi respondida
+                const currentConvId = getCurrentConversationId() || currentProcessingChatId;
+                if (currentConvId) {
+                    clearPendingConversation(currentConvId);
+                }
+                
                 // Salva a mensagem do AI no DB
                 await saveAIMessageToDB(message);
                 
@@ -4249,14 +4929,23 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
                 return false;
             }
 
-            const cardButton = conversationElement.querySelector('button._card_1z13v_1');
+            // Usa seletores estáveis
+            const cardButton = findElementStable(conversationElement, [
+                'button[type="button"]',
+                'button._card_1fg2q_1',  // Fallback
+                'button'
+            ]);
             if (!cardButton) {
                 return false;
             }
 
-            // Verifica se tem badge de mensagens não lidas
-            const cardDate = cardButton.querySelector('._card__date_1z13v_75');
-            const badge = cardDate?.querySelector('._kiwi-badge_111w6_4._kiwi-badge__number_111w6_1');
+            // Verifica se tem badge de mensagens não lidas usando seletores estáveis
+            const badge = findElementStable(cardButton, [
+                'div[role="region"][class*="badge__number"]',
+                'div[data-kiwi-badge="number"]',
+                'div[class*="badge"][class*="number"]',
+                'div[role="region"]'
+            ]);
             
             if (badge) {
                 const unreadCount = parseInt(badge.textContent?.trim() || '0', 10);
@@ -4284,7 +4973,12 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
                 return false;
             }
 
-            const button = conversationElement.querySelector('button._card_1z13v_1');
+            // Usa seletores estáveis
+            const button = findElementStable(conversationElement, [
+                'button[type="button"]',
+                'button._card_1fg2q_1',  // Fallback
+                'button'
+            ]);
             if (button) {
                 console.log('🖱️ Clicando na conversa para abrir:', conversationId);
                 button.click();
@@ -4387,6 +5081,9 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
             const sent = await sendMessageToClient(message);
             if (sent) {
                 console.log('✅ Agente IA: Mensagem enviada com sucesso para', userName);
+                
+                // Remove da lista de pendentes já que foi respondida
+                clearPendingConversation(conversationId);
                 // Marca que o Agente IA já solicitou telefone
                 await markAgentIAPhoneRequested(conversationId);
                 // Marca tempo da última mensagem do AI
