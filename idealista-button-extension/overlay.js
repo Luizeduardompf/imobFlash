@@ -37,7 +37,10 @@
             <div class="imobflash-logs-container" id="imobflash-logs-container">
                 <div class="imobflash-logs-header">
                     <span>📋 Logs em Tempo Real</span>
-                    <button id="imobflash-logs-clear" class="imobflash-logs-clear-btn">Limpar</button>
+                    <div style="display: flex; gap: 6px;">
+                        <button id="imobflash-whatsapp-test" class="imobflash-logs-clear-btn" title="Enviar mensagem teste WhatsApp">📱</button>
+                        <button id="imobflash-logs-clear" class="imobflash-logs-clear-btn">Limpar</button>
+                    </div>
                 </div>
                 <div class="imobflash-logs-content" id="imobflash-logs-content">
                     <div class="imobflash-logs-empty">Aguardando logs...</div>
@@ -53,6 +56,16 @@
     countdown.innerHTML = `
         <div class="imobflash-countdown-label">Próximo refresh em:</div>
         <div class="imobflash-countdown-time" id="imobflash-countdown-time">--:--</div>
+        <div class="imobflash-indicators">
+            <div class="imobflash-indicator" id="imobflash-indicator-list" title="Mensagens não lidas na lista">
+                <span class="imobflash-indicator-icon">📋</span>
+                <span class="imobflash-indicator-text">Lista: --</span>
+            </div>
+            <div class="imobflash-indicator" id="imobflash-indicator-chat" title="Mensagem não lida no chat aberto">
+                <span class="imobflash-indicator-icon">💬</span>
+                <span class="imobflash-indicator-text">Chat: --</span>
+            </div>
+        </div>
     `;
 
     // Função para injetar o overlay
@@ -265,6 +278,116 @@
             logs = [];
             renderLogs();
         });
+    }
+    
+    // Botão para enviar mensagem teste WhatsApp
+    const whatsappTestBtn = document.getElementById('imobflash-whatsapp-test');
+    if (whatsappTestBtn) {
+        whatsappTestBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await sendWhatsAppTestMessage();
+        });
+    }
+    
+    // Função para enviar mensagem teste WhatsApp
+    async function sendWhatsAppTestMessage() {
+        const testNumber = '351939712410';
+        const testMessage = 'Mensagem de teste do ImobFlash Agent';
+        
+        try {
+            addLog(`📱 Enviando mensagem teste para ${testNumber}...`, 'info');
+            
+            // Busca configurações do WhatsApp do banco de dados
+            const whatsappSettings = await getWhatsAppSettings();
+            
+            if (!whatsappSettings) {
+                addLog('❌ Configurações do WhatsApp não encontradas no banco de dados', 'error');
+                return;
+            }
+            
+            // Valida se os dados necessários estão presentes
+            if (!whatsappSettings.instancia_id || !whatsappSettings.instancia_token) {
+                addLog('❌ Instância ID ou Token não encontrados nas configurações', 'error');
+                return;
+            }
+            
+            // Monta URL da API Z-API no formato: https://api.z-api.io/instances/SEU_INSTANCE_ID/token/SEU_TOKEN/send-text
+            // Substitui SEU_INSTANCE_ID e SEU_TOKEN pelos valores do banco de dados
+            // Se url_api não estiver definida ou estiver vazia, usa https://api.z-api.io como padrão
+            let baseUrl = whatsappSettings.url_api || 'https://api.z-api.io';
+            baseUrl = baseUrl.replace(/\/$/, ''); // Remove barra final se existir
+            
+            const apiUrl = `${baseUrl}/instances/${whatsappSettings.instancia_id}/token/${whatsappSettings.instancia_token}/send-text`;
+            
+            addLog(`🔗 URL da API: ${apiUrl.replace(whatsappSettings.instancia_token, '***')}`, 'debug');
+            
+            // Envia mensagem
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Client-Token': whatsappSettings.client_token
+                },
+                body: JSON.stringify({
+                    phone: testNumber,
+                    message: testMessage
+                })
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                addLog(`✅ Mensagem teste enviada com sucesso para ${testNumber}`, 'success');
+                console.log('✅ Resposta da API:', result);
+            } else {
+                let errorText;
+                try {
+                    errorText = await response.text();
+                } catch (e) {
+                    errorText = `Erro ao ler resposta: ${e.message}`;
+                }
+                addLog(`❌ Erro ao enviar mensagem: ${response.status} - ${errorText}`, 'error');
+                console.error('❌ Erro ao enviar mensagem:', response.status, errorText);
+                console.error('❌ URL usada:', apiUrl.replace(whatsappSettings.instancia_token, '***'));
+            }
+        } catch (error) {
+            addLog(`❌ Erro ao enviar mensagem teste: ${error.message}`, 'error');
+            console.error('❌ Erro ao enviar mensagem teste:', error);
+        }
+    }
+    
+    // Função para buscar configurações do WhatsApp do banco de dados
+    async function getWhatsAppSettings() {
+        try {
+            // Usa as mesmas configurações do database.js
+            const supabaseUrl = 'https://bhguniomuytyzrfcpbeo.supabase.co';
+            const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJoZ3VuaW9tdXl0eXpyZmNwYmVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwMDAxNTQsImV4cCI6MjA4MjU3NjE1NH0.cLEcnoEXy4dANZya-pr3PYIYrgwE8eDFbULl8r0-ybM';
+            
+            const url = `${supabaseUrl}/rest/v1/whatsapp_settings?select=*&limit=1`;
+            const response = await fetch(url, {
+                headers: {
+                    'apikey': supabaseKey,
+                    'Authorization': `Bearer ${supabaseKey}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data && data.length > 0) {
+                    return {
+                        url_api: data[0].url_api,
+                        instancia_id: data[0].instancia_id,
+                        instancia_token: data[0].instancia_token,
+                        client_token: data[0].client_token
+                    };
+                }
+            }
+            
+            return null;
+        } catch (error) {
+            console.error('❌ Erro ao buscar configurações do WhatsApp:', error);
+            return null;
+        }
     }
     
     // Função helper para verificar se o contexto da extensão ainda é válido

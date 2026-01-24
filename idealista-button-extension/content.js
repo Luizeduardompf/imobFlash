@@ -1,5 +1,8 @@
 (function() {
     'use strict';
+    
+    // Log de inicialização para debug
+    console.log('🚀 [content.js] Script iniciado');
 
     // ============================================================================
     // HELPER DE LOGS PARA POPUP
@@ -925,46 +928,77 @@
         const now = new Date();
         
         try {
-            // NORMALIZAÇÃO ROBUSTA: Trata todos os casos de horários mal formatados
+            // NORMALIZAÇÃO PRÉVIA ULTRA-ROBUSTA: Trata casos óbvios de horários mal formatados ANTES de qualquer outra lógica
+            // Exemplos: "20:141" -> "20:14", "19:331" -> "19:33", "18:412" -> "18:41", "20:141" -> "20:14"
             
-            // Passo 1: Identifica padrão de hora (HH:MM, HH:MMM, HH:MMMM, etc.)
-            // Captura horas (1-2 dígitos) e minutos (2 ou mais dígitos)
-            const timePattern = /^(\d{1,2}):(\d{2,})/;
-            const timeMatch = trimmed.match(timePattern);
+            // Estratégia 1: Padrão exato no início (HH:MMM+)
+            const preNormalizePattern1 = /^(\d{1,2}):(\d{3,})$/;
+            const preMatch1 = trimmed.match(preNormalizePattern1);
+            if (preMatch1) {
+                const hours = preMatch1[1];
+                const minutes = preMatch1[2].substring(0, 2); // Pega apenas 2 primeiros dígitos
+                trimmed = `${hours}:${minutes}`;
+                console.log(`🔧 [parseConversationDate] Pré-normalização (padrão 1): "${dateStr.trim()}" -> "${trimmed}"`);
+            } else {
+                // Estratégia 2: Qualquer padrão HH:MMM+ (mesmo com caracteres extras)
+                const preNormalizePattern2 = /(\d{1,2}):(\d{3,})/;
+                const preMatch2 = trimmed.match(preNormalizePattern2);
+                if (preMatch2) {
+                    const hours = preMatch2[1];
+                    const minutes = preMatch2[2].substring(0, 2);
+                    trimmed = trimmed.replace(preNormalizePattern2, `${hours}:${minutes}`);
+                    console.log(`🔧 [parseConversationDate] Pré-normalização (padrão 2): "${dateStr.trim()}" -> "${trimmed}"`);
+                }
+            }
             
-            if (timeMatch) {
-                // É um padrão de hora - normaliza
-                const hours = timeMatch[1];
-                let minutes = timeMatch[2];
+            // NORMALIZAÇÃO ULTRA-ROBUSTA: Trata TODOS os casos de horários mal formatados
+            // Primeiro, tenta encontrar QUALQUER padrão de hora na string (não só no início)
+            
+            // Passo 1: Busca QUALQUER padrão de hora na string (HH:MM, HH:MMM, HH:MMMM, etc.)
+            // Isso captura mesmo se houver caracteres antes ou depois
+            const anyTimePattern = /(\d{1,2}):(\d{2,})/;
+            const anyTimeMatch = trimmed.match(anyTimePattern);
+            
+            if (anyTimeMatch) {
+                // Encontrou um padrão de hora - normaliza
+                const hours = anyTimeMatch[1];
+                let minutes = anyTimeMatch[2];
                 const originalMinutes = minutes;
+                const originalString = trimmed;
                 
                 // SEMPRE pega apenas os 2 primeiros dígitos dos minutos
-                // Isso trata: "19:331" -> "19:33", "18:412" -> "18:41", "22:3856" -> "22:38"
+                // Isso trata: "19:331" -> "19:33", "18:412" -> "18:41", "20:141" -> "20:14", "22:3856" -> "22:38"
                 if (minutes.length > 2) {
                     minutes = minutes.substring(0, 2);
-                    console.log(`🔧 [parseConversationDate] Normalizado: "${dateStr.trim()}" -> "${hours}:${minutes}" (removidos ${originalMinutes.length - 2} dígitos extras)`);
+                    // Reconstrói a string normalizada (substitui o padrão encontrado)
+                    trimmed = trimmed.replace(anyTimePattern, `${hours}:${minutes}`);
+                    console.log(`🔧 [parseConversationDate] Normalizado: "${originalString}" -> "${trimmed}" (removidos ${originalMinutes.length - 2} dígitos extras dos minutos)`);
+                } else {
+                    // Já está com 2 dígitos, mas pode ter caracteres extras - limpa
+                    trimmed = `${hours}:${minutes}`;
                 }
-                
-                // Reconstrói a string normalizada
-                trimmed = `${hours}:${minutes}`;
             } else {
-                // Não é um padrão de hora puro, tenta limpar
-                // Remove caracteres não numéricos após os minutos
-                trimmed = trimmed.replace(/(\d{1,2}:\d{2})\D.*$/, '$1');
+                // Não encontrou padrão de hora com regex - tenta fallback mais agressivo
+                // Busca qualquer sequência que pareça hora (HH:MMM+)
+                const fallbackPattern = /(\d{1,2}):(\d{3,})/;
+                const fallbackMatch = trimmed.match(fallbackPattern);
                 
-                // Corrige dígitos extras nos minutos (fallback mais agressivo)
-                // Tenta múltiplos padrões
-                trimmed = trimmed.replace(/^(\d{1,2}):(\d{3,})$/, (match, hours, minutes) => {
+                if (fallbackMatch) {
+                    const hours = fallbackMatch[1];
+                    const minutes = fallbackMatch[2];
                     const normalized = `${hours}:${minutes.substring(0, 2)}`;
-                    console.log(`🔧 [parseConversationDate] Fallback: "${match}" -> "${normalized}"`);
-                    return normalized;
-                });
-                
-                // Se ainda não está no formato correto, tenta uma última vez
-                const finalTimeMatch = trimmed.match(/^(\d{1,2}):(\d+)/);
-                if (finalTimeMatch && finalTimeMatch[2].length > 2) {
-                    trimmed = `${finalTimeMatch[1]}:${finalTimeMatch[2].substring(0, 2)}`;
-                    console.log(`🔧 [parseConversationDate] Última tentativa de normalização: "${dateStr.trim()}" -> "${trimmed}"`);
+                    trimmed = trimmed.replace(fallbackPattern, normalized);
+                    console.log(`🔧 [parseConversationDate] Fallback normalização: "${dateStr.trim()}" -> "${trimmed}"`);
+                } else {
+                    // Última tentativa: busca qualquer padrão HH:MM+ e normaliza
+                    const lastPattern = /(\d{1,2}):(\d+)/;
+                    const lastMatch = trimmed.match(lastPattern);
+                    if (lastMatch && lastMatch[2].length > 2) {
+                        const hours = lastMatch[1];
+                        const minutes = lastMatch[2].substring(0, 2);
+                        trimmed = `${hours}:${minutes}`;
+                        console.log(`🔧 [parseConversationDate] Última tentativa de normalização: "${dateStr.trim()}" -> "${trimmed}"`);
+                    }
                 }
             }
             
@@ -1499,6 +1533,15 @@
             }
             
             console.log(`✅ [monitorConversationsList] Processamento concluído: ${processedCount} processadas, ${skippedCount} ignoradas, ${errorCount} erros`);
+            
+            // Atualiza indicadores após processar conversas
+            try {
+                if (typeof updateUnreadIndicators === 'function') {
+                    updateUnreadIndicators();
+                }
+            } catch (error) {
+                console.error('❌ Erro ao atualizar indicadores:', error);
+            }
         } catch (error) {
             console.error('❌ [monitorConversationsList] Erro na função:', error);
             console.error('❌ [monitorConversationsList] Stack:', error.stack);
@@ -1545,6 +1588,15 @@
         
         // Não chama monitorConversationsList aqui para evitar loops
         // O observer já detecta mudanças, não precisa verificar toda a lista novamente
+        
+        // Atualiza indicadores quando detecta mudanças na lista
+        try {
+            if (typeof updateUnreadListIndicator === 'function') {
+                updateUnreadListIndicator();
+            }
+        } catch (error) {
+            console.error('❌ Erro ao atualizar indicador de lista:', error);
+        }
     });
 
     /**
@@ -1671,6 +1723,15 @@
         }
 
         const unreadConversations = findUnreadConversations();
+        
+        // Atualiza indicador de lista
+        try {
+            if (typeof updateUnreadListIndicator === 'function') {
+                updateUnreadListIndicator();
+            }
+        } catch (error) {
+            console.error('❌ Erro ao atualizar indicador de lista:', error);
+        }
         
         if (unreadConversations.length === 0) {
             return;
@@ -2293,7 +2354,24 @@
         if (!checkingMessages.has(conversationId)) {
             openChatCheckTimeout = setTimeout(() => {
                 checkForNewMessagesInOpenChat(conversationId);
+                // Atualiza indicador de chat após verificar mensagens
+                try {
+                    if (typeof updateUnreadChatIndicator === 'function') {
+                        updateUnreadChatIndicator();
+                    }
+                } catch (error) {
+                    console.error('❌ Erro ao atualizar indicador de chat:', error);
+                }
             }, 1000);
+        } else {
+            // Mesmo que já esteja verificando, atualiza indicador
+            try {
+                if (typeof updateUnreadChatIndicator === 'function') {
+                    updateUnreadChatIndicator();
+                }
+            } catch (error) {
+                console.error('❌ Erro ao atualizar indicador de chat:', error);
+            }
         }
     });
     
@@ -2327,6 +2405,20 @@
                     // Só verifica se não estiver já verificando
                     if (!checkingMessages.has(conversationId)) {
                         checkForNewMessagesInOpenChat(conversationId);
+                    }
+                    
+                    // CAMADA EXTRA: Verifica mensagens não lidas no chat aberto
+                    try {
+                        if (typeof updateUnreadIndicators === 'function') {
+                            updateUnreadIndicators(); // Atualiza indicadores
+                        }
+                    } catch (error) {
+                        console.error('❌ Erro ao atualizar indicadores:', error);
+                    }
+                    const hasUnread = hasUnreadMessageInOpenChat();
+                    if (hasUnread && !currentProcessingChatId && !isAIWorking) {
+                        console.log('🔄 [setupOpenChatMessagesObserver] Mensagem não lida detectada, processando...');
+                        processUnreadMessageInOpenChat();
                     }
                 } else {
                     // Conversa mudou, limpa o timer
@@ -2366,6 +2458,15 @@
             
             // Extrai mensagens atuais (força refresh para obter dados atualizados)
             const { messages } = extractChatMessages(true);
+            
+            // Atualiza indicador de chat aberto
+            try {
+                if (typeof updateUnreadChatIndicator === 'function') {
+                    updateUnreadChatIndicator();
+                }
+            } catch (error) {
+                console.error('❌ Erro ao atualizar indicador de chat:', error);
+            }
             
             if (!messages || messages.length === 0) {
                 return; // Log removido para reduzir ruído
@@ -3565,14 +3666,181 @@
         }, 3000);
     }
 
+    // ============================================================================
+    // CAMADA EXTRA: VALIDAÇÃO DE MENSAGENS NÃO LIDAS NO CHAT ABERTO
+    // ============================================================================
+    
+    /**
+     * Atualiza indicador de mensagens não lidas na lista
+     */
+    function updateUnreadListIndicator() {
+        try {
+            const indicator = document.getElementById('imobflash-indicator-list');
+            if (!indicator) return;
+            
+            const unreadConversations = findUnreadConversations();
+            const count = unreadConversations.length;
+            const textEl = indicator.querySelector('.imobflash-indicator-text');
+            
+            if (textEl) {
+                textEl.textContent = `Lista: ${count}`;
+            }
+            
+            // Ativa/desativa indicador baseado na contagem
+            if (count > 0) {
+                indicator.classList.add('active');
+                indicator.classList.remove('inactive');
+            } else {
+                indicator.classList.remove('active');
+                indicator.classList.add('inactive');
+            }
+        } catch (error) {
+            console.error('❌ [updateUnreadListIndicator] Erro ao atualizar indicador:', error);
+        }
+    }
+    
+    /**
+     * Atualiza indicador de mensagem não lida no chat aberto
+     * IMPORTANTE: Não chama hasUnreadMessageInOpenChat() para evitar recursão infinita
+     */
+    function updateUnreadChatIndicator() {
+        try {
+            const indicator = document.getElementById('imobflash-indicator-chat');
+            if (!indicator) return;
+            
+            // Calcula diretamente sem chamar hasUnreadMessageInOpenChat() para evitar recursão
+            let hasUnread = false;
+            try {
+                const conversationDetail = document.querySelector('[data-testid="conversation-detail-component"]');
+                if (conversationDetail) {
+                    const { messages } = extractChatMessages();
+                    if (messages && messages.length > 0) {
+                        const lastMessage = messages[messages.length - 1];
+                        hasUnread = lastMessage && lastMessage.sender === 'client';
+                    }
+                }
+            } catch (error) {
+                // Ignora erros na verificação
+            }
+            
+            const textEl = indicator.querySelector('.imobflash-indicator-text');
+            
+            if (textEl) {
+                textEl.textContent = `Chat: ${hasUnread ? 'SIM' : 'NÃO'}`;
+            }
+            
+            // Ativa/desativa indicador
+            if (hasUnread) {
+                indicator.classList.add('active');
+                indicator.classList.remove('inactive');
+            } else {
+                indicator.classList.remove('active');
+                indicator.classList.add('inactive');
+            }
+        } catch (error) {
+            console.error('❌ [updateUnreadChatIndicator] Erro ao atualizar indicador:', error);
+        }
+    }
+    
+    /**
+     * Atualiza ambos os indicadores
+     */
+    function updateUnreadIndicators() {
+        updateUnreadListIndicator();
+        updateUnreadChatIndicator();
+    }
+    
+    /**
+     * Verifica se há mensagem não lida no chat aberto
+     * @returns {boolean} true se há mensagem não lida, false caso contrário
+     */
+    function hasUnreadMessageInOpenChat() {
+        try {
+            // Verifica se há conversa aberta
+            const conversationDetail = document.querySelector('[data-testid="conversation-detail-component"]');
+            if (!conversationDetail) {
+                return false; // Não há conversa aberta
+            }
+            
+            // Extrai mensagens do chat aberto
+            const { messages } = extractChatMessages();
+            
+            if (!messages || messages.length === 0) {
+                return false; // Não há mensagens
+            }
+            
+            // Verifica se a última mensagem é do cliente (não lida/não respondida)
+            const lastMessage = messages[messages.length - 1];
+            const hasUnread = lastMessage && lastMessage.sender === 'client';
+            
+            if (hasUnread) {
+                console.log('🔍 [hasUnreadMessageInOpenChat] Mensagem não lida detectada no chat aberto:', {
+                    conversationId: getCurrentConversationId(),
+                    lastMessage: lastMessage.content.substring(0, 50) + '...',
+                    totalMessages: messages.length
+                });
+            }
+            
+            // NÃO atualiza indicador aqui para evitar recursão infinita
+            // O indicador será atualizado separadamente pelos intervalos
+            
+            return hasUnread;
+        } catch (error) {
+            console.error('❌ [hasUnreadMessageInOpenChat] Erro ao verificar mensagens não lidas:', error);
+            return false; // Em caso de erro, retorna false para não bloquear refresh
+        }
+    }
+    
+    /**
+     * Processa mensagem não lida no chat aberto se não estiver sendo tratada
+     */
+    async function processUnreadMessageInOpenChat() {
+        try {
+            // Verifica se há mensagem não lida
+            if (!hasUnreadMessageInOpenChat()) {
+                return; // Não há mensagem não lida
+            }
+            
+            const conversationId = getCurrentConversationId() || currentProcessingChatId;
+            
+            if (!conversationId) {
+                console.warn('⚠️ [processUnreadMessageInOpenChat] Não foi possível identificar conversationId');
+                return;
+            }
+            
+            // Verifica se já está sendo processada
+            if (currentProcessingChatId === conversationId) {
+                console.log('ℹ️ [processUnreadMessageInOpenChat] Conversa já está sendo processada:', conversationId);
+                return;
+            }
+            
+            // Verifica se o AI está trabalhando nesta conversa
+            if (isAIWorking && currentAIWorkingConversationId === conversationId) {
+                console.log('ℹ️ [processUnreadMessageInOpenChat] AI já está trabalhando nesta conversa:', conversationId);
+                return;
+            }
+            
+            console.log('📥 [processUnreadMessageInOpenChat] Processando mensagem não lida no chat aberto:', conversationId);
+            
+            // Processa a conversa aberta
+            await processOpenChat();
+            
+        } catch (error) {
+            console.error('❌ [processUnreadMessageInOpenChat] Erro ao processar mensagem não lida:', error);
+        }
+    }
+    
     /**
      * Configura reload aleatório baseado nas configurações do Supabase
      */
     async function setupRandomReload() {
-        // Carrega configurações se ainda não carregou
-        if (!generalSettings) {
-            await loadGeneralSettings();
-        }
+        try {
+            console.log('🔄 [setupRandomReload] Iniciando configuração de reload...');
+            
+            // Carrega configurações se ainda não carregou
+            if (!generalSettings) {
+                await loadGeneralSettings();
+            }
 
         // Verifica se reload automático está ativado
         // IMPORTANTE: Sempre agenda refresh para garantir que novas mensagens sejam detectadas
@@ -3597,6 +3865,7 @@
         
         // Armazena o timestamp do refresh agendado
         reloadScheduledTime = Date.now() + randomMs;
+        console.log('⏰ [setupRandomReload] Refresh agendado para:', new Date(reloadScheduledTime).toLocaleTimeString('pt-BR'), `(em ${randomMinutes} minutos)`);
 
         // Calcula quando será o próximo refresh
         const nextRefreshDate = new Date(Date.now() + randomMs);
@@ -3633,18 +3902,49 @@
             console.log(nextRefreshMessage);
         }, 6000);
 
-        reloadTimeout = setTimeout(() => {
+        reloadTimeout = setTimeout(async () => {
             // Verifica se há uma conversa sendo processada antes de fazer refresh
             const hasOpenConversation = !!document.querySelector('[data-testid="conversation-detail-component"]');
             const hasProcessingChat = currentProcessingChatId !== null;
             
-            if (hasOpenConversation || hasProcessingChat || isAIWorking) {
-                console.log('⏸️ Refresh cancelado: há conversa sendo processada', {
+            // CAMADA EXTRA: Verifica se há mensagem não lida no chat aberto
+            let hasUnreadInOpenChat = false;
+            try {
+                if (typeof hasUnreadMessageInOpenChat === 'function') {
+                    hasUnreadInOpenChat = hasUnreadMessageInOpenChat();
+                }
+            } catch (error) {
+                console.error('❌ Erro ao verificar mensagens não lidas:', error);
+            }
+            
+            if (hasOpenConversation || hasProcessingChat || isAIWorking || hasUnreadInOpenChat) {
+                console.log('⏸️ Refresh cancelado: há conversa sendo processada ou mensagem não lida', {
                     hasOpenConversation,
                     hasProcessingChat,
                     currentProcessingChatId,
-                    isAIWorking
+                    isAIWorking,
+                    hasUnreadInOpenChat: hasUnreadInOpenChat
                 });
+                
+                // Se há mensagem não lida e não está sendo tratada, processa ela
+                if (hasUnreadInOpenChat && !hasProcessingChat && !isAIWorking) {
+                    console.log('🔄 [setupRandomReload] Mensagem não lida detectada, processando antes de reagendar refresh...');
+                    if (typeof processUnreadMessageInOpenChat === 'function') {
+                        processUnreadMessageInOpenChat().then(() => {
+                        // Após processar, reagenda o refresh
+                        console.log('🔄 Reagendando refresh para 5 minutos após processar mensagem não lida...');
+                        reloadScheduledTime = Date.now() + (5 * 60 * 1000);
+                        reloadTimeout = setTimeout(async () => {
+                            console.log('🔄 Executando refresh automático reagendado...');
+                            reloadScheduledTime = null;
+                            await safeReload();
+                        }, 5 * 60 * 1000);
+                        }).catch(err => {
+                            console.error('❌ Erro ao processar mensagem não lida:', err);
+                        });
+                    }
+                    return;
+                }
                 
                 // Reagenda o refresh para mais tarde (5 minutos)
                 console.log('🔄 Reagendando refresh para 5 minutos...');
@@ -3663,80 +3963,128 @@
         }, randomMs);
         
         // Inicia atualização do countdown
-        startCountdownUpdate();
+        try {
+            console.log('⏱️ [setupRandomReload] Iniciando atualização do countdown...');
+            startCountdownUpdate();
+            console.log('✅ [setupRandomReload] Countdown iniciado com sucesso');
+        } catch (error) {
+            console.error('❌ [setupRandomReload] Erro ao iniciar countdown:', error);
+            console.error('❌ [setupRandomReload] Stack:', error.stack);
+        }
+        
+        console.log('✅ [setupRandomReload] Configuração de reload concluída');
+        } catch (error) {
+            console.error('❌ [setupRandomReload] Erro geral na função:', error);
+            console.error('❌ [setupRandomReload] Stack:', error.stack);
+            throw error; // Re-lança o erro para que seja capturado pelo caller
+        }
     }
     
     /**
      * Atualiza o countdown periodicamente
      */
     function startCountdownUpdate() {
-        // Limpa intervalo anterior se existir
-        if (window.countdownUpdateInterval) {
-            clearInterval(window.countdownUpdateInterval);
-        }
+        try {
+            console.log('⏱️ [startCountdownUpdate] Iniciando...');
+            
+            // Limpa intervalo anterior se existir
+            if (window.countdownUpdateInterval) {
+                clearInterval(window.countdownUpdateInterval);
+                window.countdownUpdateInterval = null;
+            }
+            
+            // Limpa intervalo de verificação de mensagens não lidas se existir
+            if (window.unreadCheckInterval) {
+                clearInterval(window.unreadCheckInterval);
+                window.unreadCheckInterval = null;
+            }
+        window.unreadCheckInterval = setInterval(() => {
+            try {
+                // Atualiza indicadores
+                if (typeof updateUnreadIndicators === 'function') {
+                    updateUnreadIndicators();
+                }
+                
+                if (typeof hasUnreadMessageInOpenChat === 'function') {
+                    const hasUnread = hasUnreadMessageInOpenChat();
+                    if (hasUnread && !currentProcessingChatId && !isAIWorking) {
+                        console.log('🔄 [unreadCheckInterval] Mensagem não lida detectada, processando...');
+                        if (typeof processUnreadMessageInOpenChat === 'function') {
+                            processUnreadMessageInOpenChat();
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('❌ [unreadCheckInterval] Erro na verificação periódica:', error);
+            }
+        }, 5000); // Verifica a cada 5 segundos
         
         // Atualiza o countdown a cada segundo
+        console.log('⏱️ [startCountdownUpdate] Configurando intervalo de countdown...');
         window.countdownUpdateInterval = setInterval(() => {
-            if (reloadScheduledTime) {
-                const now = Date.now();
-                const remaining = Math.max(0, Math.floor((reloadScheduledTime - now) / 1000));
-                
-                // Armazena no window global para o overlay.js ler
-                window.imobflashRefreshTimeRemaining = remaining;
-                
-                // Atualiza diretamente no DOM (mais confiável que depender da função do overlay)
-                const countdownTimeEl = document.getElementById('imobflash-countdown-time');
-                if (countdownTimeEl) {
-                    const minutes = Math.floor(remaining / 60);
-                    const seconds = remaining % 60;
-                    countdownTimeEl.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-                } else {
-                    // Se o elemento ainda não existe, tenta novamente após um pequeno delay
-                    setTimeout(() => {
-                        const el = document.getElementById('imobflash-countdown-time');
-                        if (el && reloadScheduledTime) {
-                            const now = Date.now();
-                            const rem = Math.max(0, Math.floor((reloadScheduledTime - now) / 1000));
-                            const mins = Math.floor(rem / 60);
-                            const secs = rem % 60;
-                            el.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+            try {
+                if (reloadScheduledTime) {
+                    const now = Date.now();
+                    const remaining = Math.max(0, Math.floor((reloadScheduledTime - now) / 1000));
+                    
+                    // Armazena no window global para o overlay.js ler
+                    window.imobflashRefreshTimeRemaining = remaining;
+                    
+                    // Log de debug (apenas a cada 10 segundos para não poluir)
+                    if (remaining % 10 === 0 || remaining < 5) {
+                        console.log('⏱️ [countdown] Tempo restante:', remaining, 'segundos');
+                    }
+                    
+                    // Atualiza diretamente no DOM (mais confiável que depender da função do overlay)
+                    const countdownTimeEl = document.getElementById('imobflash-countdown-time');
+                    if (countdownTimeEl) {
+                        const minutes = Math.floor(remaining / 60);
+                        const seconds = remaining % 60;
+                        countdownTimeEl.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                    } else {
+                        // Se o elemento ainda não existe, tenta novamente após um pequeno delay
+                        setTimeout(() => {
+                            const el = document.getElementById('imobflash-countdown-time');
+                            if (el && reloadScheduledTime) {
+                                const now = Date.now();
+                                const rem = Math.max(0, Math.floor((reloadScheduledTime - now) / 1000));
+                                const mins = Math.floor(rem / 60);
+                                const secs = rem % 60;
+                                el.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                            }
+                        }, 500);
+                    }
+                    
+                    // Também tenta chamar a função do overlay se existir
+                    if (window.updateRefreshCountdown) {
+                        try {
+                            window.updateRefreshCountdown(remaining);
+                        } catch (e) {
+                            // Ignora erros
                         }
-                    }, 500);
-                }
-                
-                // Também tenta chamar a função do overlay se existir
-                if (window.updateRefreshCountdown) {
-                    try {
-                        window.updateRefreshCountdown(remaining);
-                    } catch (e) {
-                        // Ignora erros
+                    }
+                    
+                    // Se chegou a zero, para o intervalo
+                    if (remaining <= 0) {
+                        clearInterval(window.countdownUpdateInterval);
+                        if (window.unreadCheckInterval) {
+                            clearInterval(window.unreadCheckInterval);
+                        }
+                        window.countdownUpdateInterval = null;
+                        window.unreadCheckInterval = null;
+                        window.imobflashRefreshTimeRemaining = null;
+                    }
+                } else {
+                    // Se não há refresh agendado, mostra "--:--"
+                    const countdownTimeEl = document.getElementById('imobflash-countdown-time');
+                    if (countdownTimeEl) {
+                        countdownTimeEl.textContent = '--:--';
                     }
                 }
-                
-                // Se chegou a zero, para o intervalo
-                if (remaining <= 0) {
-                    clearInterval(window.countdownUpdateInterval);
-                    window.countdownUpdateInterval = null;
-                    window.imobflashRefreshTimeRemaining = null;
-                }
-            } else {
-                // Se não há refresh agendado, mostra "--:--"
-                window.imobflashRefreshTimeRemaining = null;
-                
-                const countdownTimeEl = document.getElementById('imobflash-countdown-time');
-                if (countdownTimeEl) {
-                    countdownTimeEl.textContent = '--:--';
-                }
-                
-                if (window.updateRefreshCountdown) {
-                    try {
-                        window.updateRefreshCountdown(null);
-                    } catch (e) {
-                        // Ignora erros
-                    }
-                }
+            } catch (error) {
+                console.error('❌ [startCountdownUpdate] Erro no intervalo de countdown:', error);
             }
-        }, 1000); // Atualiza a cada segundo
+        }, 1000);
         
         // Atualiza imediatamente também (com retry se o elemento ainda não existir)
         const updateCountdownNow = () => {
@@ -3763,6 +4111,12 @@
         
         // Também tenta após 2 segundos (caso o overlay ainda esteja sendo injetado)
         setTimeout(updateCountdownNow, 2000);
+        
+        console.log('✅ [startCountdownUpdate] Intervalo de countdown configurado');
+        } catch (error) {
+            console.error('❌ [startCountdownUpdate] Erro ao iniciar countdown:', error);
+            console.error('❌ [startCountdownUpdate] Stack:', error.stack);
+        }
     }
     
     /**
@@ -3827,6 +4181,8 @@
      * Inicializa a extensão
      */
     async function init() {
+        console.log('🚀 [init] Função init() chamada');
+        
         // Verifica se o agente está logado antes de iniciar
         const isLoggedIn = await checkAgentLoggedIn();
         
@@ -3838,11 +4194,30 @@
         
         console.log('✅ Agente logado, iniciando monitoramento...');
         
+        // Inicializa indicadores de mensagens não lidas
+        setTimeout(() => {
+            try {
+                if (typeof updateUnreadIndicators === 'function') {
+                    updateUnreadIndicators();
+                }
+            } catch (error) {
+                console.error('❌ Erro ao inicializar indicadores:', error);
+            }
+        }, 2000); // Aguarda 2 segundos para garantir que o DOM está pronto
+        
         // CRÍTICO: Recupera e processa mensagens pendentes antes de qualquer outra coisa
         // Isso garante que mensagens não respondidas antes de um refresh sejam processadas
         console.log('🔄 [init] Verificando mensagens pendentes...');
         setTimeout(async () => {
             await recoverAndProcessPendingMessages();
+            // Atualiza indicadores após recuperar mensagens pendentes
+            try {
+                if (typeof updateUnreadIndicators === 'function') {
+                    updateUnreadIndicators();
+                }
+            } catch (error) {
+                console.error('❌ Erro ao atualizar indicadores após recuperar pendentes:', error);
+            }
         }, 3000); // Aguarda 3 segundos para garantir que a página carregou completamente
         
         // Processa conversa atual
@@ -4030,10 +4405,15 @@
         }, 3000); // Aguarda 3 segundos antes de começar
         
         // Configura reload aleatório (async) - aguarda um pouco mais para garantir que o overlay está pronto
-        setTimeout(() => {
-            setupRandomReload().catch(err => {
-                console.error('❌ Erro ao configurar reload:', err);
-            });
+        setTimeout(async () => {
+            try {
+                console.log('🔄 [init] Configurando reload aleatório...');
+                await setupRandomReload();
+                console.log('✅ [init] Reload aleatório configurado com sucesso');
+            } catch (err) {
+                console.error('❌ [init] Erro ao configurar reload:', err);
+                console.error('❌ [init] Stack:', err.stack);
+            }
         }, 5000); // Aguarda 5 segundos para garantir que o overlay está pronto
         
         // Verificação periódica para garantir que o refresh continue agendado
@@ -5325,10 +5705,25 @@ Gere uma resposta educada e profissional solicitando o número de telefone (pref
     }, 5 * 60 * 1000);
 
     // Inicia quando o DOM estiver pronto
+    console.log('🚀 [content.js] Verificando estado do DOM:', document.readyState);
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        console.log('⏳ [content.js] DOM ainda carregando, aguardando DOMContentLoaded...');
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('✅ [content.js] DOMContentLoaded disparado, chamando init()...');
+            init().catch(err => {
+                console.error('❌ [content.js] Erro ao inicializar:', err);
+            });
+        });
     } else {
-        setTimeout(init, 1000);
+        console.log('✅ [content.js] DOM já está pronto, agendando init() em 1 segundo...');
+        setTimeout(() => {
+            console.log('🚀 [content.js] Chamando init() após timeout...');
+            init().catch(err => {
+                console.error('❌ [content.js] Erro ao inicializar:', err);
+            });
+        }, 1000);
     }
+    
+    console.log('✅ [content.js] Script carregado completamente');
 })();
 
